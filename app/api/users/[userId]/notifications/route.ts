@@ -23,8 +23,12 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     });
 
     if (!userExists) {
-      // Instead of 404, return an empty notifications list to avoid noisy client errors
-      return NextResponse.json({ notifications: [], meta: { total: 0 } });
+      console.info(`notifications: user ${userId} not found, returning empty list`);
+      // Always return 200 with empty data for missing users to prevent client errors/retries
+      return new NextResponse(JSON.stringify({ notifications: [], meta: { total: 0, userMissing: true } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
     const where: any = { userId };

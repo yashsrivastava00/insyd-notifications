@@ -129,21 +129,19 @@ export default function NotificationList() {
         `/api/users/${userId}/notifications?sort=${sort}&unreadOnly=${unreadOnly}&limit=50`,
         { signal: controller.signal }
       );
-      if (!response.ok) {
-        // If the selected user no longer exists (for example after a reseed), clear stored selection
-        if (response.status === 404) {
-          try {
-            localStorage.removeItem('insyd_user');
-          } catch (e) {
-            /* ignore */
-          }
-          setUserId(null);
-          showToast('Selected user not found. Please select a demo user.', 'error');
-          return;
-        }
-        throw new Error('Failed to fetch notifications');
-      }
       const data = await response.json();
+      
+      // If userMissing flag is true, user needs to select a new one
+      if (data.meta?.userMissing) {
+        try {
+          localStorage.removeItem('insyd_user');
+        } catch (e) {
+          /* ignore */
+        }
+        setUserId(null);
+        showToast('Selected user not found. Please select a demo user.', 'error');
+        return;
+      }
       setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
     } catch (error: any) {
       if (error && error.name === 'AbortError') {
