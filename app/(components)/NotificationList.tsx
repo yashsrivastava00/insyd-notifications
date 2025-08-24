@@ -129,7 +129,20 @@ export default function NotificationList() {
         `/api/users/${userId}/notifications?sort=${sort}&unreadOnly=${unreadOnly}&limit=50`,
         { signal: controller.signal }
       );
-      if (!response.ok) throw new Error('Failed to fetch notifications');
+      if (!response.ok) {
+        // If the selected user no longer exists (for example after a reseed), clear stored selection
+        if (response.status === 404) {
+          try {
+            localStorage.removeItem('insyd_user');
+          } catch (e) {
+            /* ignore */
+          }
+          setUserId(null);
+          showToast('Selected user not found. Please select a demo user.', 'error');
+          return;
+        }
+        throw new Error('Failed to fetch notifications');
+      }
       const data = await response.json();
       setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
     } catch (error: any) {
@@ -210,10 +223,14 @@ export default function NotificationList() {
 
       switch (type) {
         case 'new_post':
-          // create a post by the selected user
           // actor will be a random other user (simulate someone else posting about/for you)
+          if (others.length === 0) {
+            showToast('No other users available. Please reseed or select another user.', 'error');
+            setDemoLoading(false);
+            return;
+          }
           const actorForPost = others[Math.floor(Math.random() * others.length)];
-          event = { ...event, actorId: actorForPost.id, objectType: 'post', objectId: '', text: `A new post from ${actorForPost.name}` };
+          event = { ...event, actorId: actorForPost?.id, objectType: 'post', objectId: '', text: `A new post from ${actorForPost?.name || 'someone'}` };
           break;
         case 'new_like':
           if (others.length === 0) {
@@ -246,7 +263,7 @@ export default function NotificationList() {
           break;
       }
 
-      // Make sure actorId is set correctly; do not overwrite with userId (actor should be the acting user)
+      // Make sure actorId is set correctly; fall back to the selected user if something went wrong
       if (!event.actorId) event.actorId = userId;
       const response = await fetch("/api/events", {
         method: "POST",
@@ -254,7 +271,30 @@ export default function NotificationList() {
         body: JSON.stringify(event),
       });
 
-      if (!response.ok) throw new Error('Failed to create demo event');
+      if (!response.ok) {
+        // If the event failed due to foreign key constraints (stale IDs after reseed), refresh users and clear invalid selection
+        let body = null;
+        try { body = await response.json(); } catch (e) { /* ignore */ }
+        if (response.status === 400 && body && typeof body.error === 'string') {
+          const err = body.error;
+          if (err.toLowerCase().includes('foreign key') || err.toLowerCase().includes('actorid') || err.toLowerCase().includes('followeeid')) {
+            try {
+              const ures = await fetch('/api/users');
+              const udata = await ures.json();
+              const has = Array.isArray(udata.users) && udata.users.find((u: any) => u.id === userId);
+              if (!has) {
+                try { localStorage.removeItem('insyd_user'); } catch (e) {}
+                setUserId(null);
+                showToast('Selected user is no longer valid after reseed. Please select a demo user.', 'error');
+                return;
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        throw new Error('Failed to create demo event');
+      }
       showToast(`Demo ${type.replace('new_', '')} created`, 'success');
       
   // Wait briefly then fetch new notifications (await to avoid overlapping requests)

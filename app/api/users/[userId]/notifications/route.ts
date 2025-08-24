@@ -23,7 +23,8 @@ export async function GET(req: NextRequest, { params }: { params: { userId: stri
     });
 
     if (!userExists) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      // Instead of 404, return an empty notifications list to avoid noisy client errors
+      return NextResponse.json({ notifications: [], meta: { total: 0 } });
     }
 
     const where: any = { userId };

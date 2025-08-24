@@ -15,7 +15,10 @@ export async function POST(req: NextRequest) {
   const actorId: string = event.actorId;
   const notifyUserId: string | undefined = event.notifyUserId;
 
-    if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 });
+  if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 });
+  // ensure actor exists
+  const actorExists = await prisma.user.findUnique({ where: { id: actorId }, select: { id: true } });
+  if (!actorExists) return NextResponse.json({ error: 'actorId not found' }, { status: 400 });
 
     // new_post: create a post and notify followers
     if (type === 'new_post') {
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
       const validFollowerIds = followers.map((f: any) => f.followerId).filter(Boolean);
       if (validFollowerIds.length) {
         const existing = await prisma.user.findMany({ where: { id: { in: validFollowerIds } }, select: { id: true } });
-  const existingIds = new Set(existing.map((e: any) => e.id));
+        const existingIds = new Set(existing.map((e: any) => e.id));
         const notifs = followers
           .map((f: { followerId: string }) => ({
             userId: f.followerId,
@@ -49,7 +52,11 @@ export async function POST(req: NextRequest) {
       }
       // optionally notify a specific user (demo helper)
       if (notifyUserId) {
-        await prisma.notification.create({ data: { userId: notifyUserId, type: 'new_post', actorId, objectType: 'post', objectId: post.id, text: truncate(content, 140) } });
+        // only create if the target exists
+        const notifyExists = await prisma.user.findUnique({ where: { id: notifyUserId }, select: { id: true } });
+        if (notifyExists) {
+          await prisma.notification.create({ data: { userId: notifyUserId, type: 'new_post', actorId, objectType: 'post', objectId: post.id, text: truncate(content, 140) } });
+        }
       }
       return NextResponse.json({ ok: true, createdPost: post.id });
     }
@@ -60,14 +67,21 @@ export async function POST(req: NextRequest) {
       // find a recent post by targetUserId or any recent post
       let post;
       if (targetUserId) {
-        post = await prisma.post.findFirst({ where: { authorId: targetUserId }, orderBy: { createdAt: 'desc' } });
+        // ensure target user exists before searching posts
+        const targetExists = await prisma.user.findUnique({ where: { id: targetUserId }, select: { id: true } });
+        if (targetExists) {
+          post = await prisma.post.findFirst({ where: { authorId: targetUserId }, orderBy: { createdAt: 'desc' } });
+        }
       }
       if (!post) {
         post = await prisma.post.findFirst({ orderBy: { createdAt: 'desc' } });
       }
       if (!post) return NextResponse.json({ error: 'No post available to like' }, { status: 400 });
 
-      await prisma.reaction.create({ data: { postId: post.id, userId: actorId, type: 'like' } });
+  // ensure user still exists before creating reaction
+  const reactorExists = await prisma.user.findUnique({ where: { id: actorId }, select: { id: true } });
+  if (!reactorExists) return NextResponse.json({ error: 'actorId not found' }, { status: 400 });
+  await prisma.reaction.create({ data: { postId: post.id, userId: actorId, type: 'like' } });
       if (post.authorId !== actorId) {
         await prisma.notification.create({ data: {
           userId: post.authorId,
@@ -87,10 +101,13 @@ export async function POST(req: NextRequest) {
 
     // new_follow: create follow and notify followee
     if (type === 'new_follow') {
-      const followeeId: string | undefined = event.objectId || event.followeeId;
-      if (!followeeId) return NextResponse.json({ error: 'followeeId required' }, { status: 400 });
+  const followeeId: string | undefined = event.objectId || event.followeeId;
+  if (!followeeId) return NextResponse.json({ error: 'followeeId required' }, { status: 400 });
+  // ensure followee exists
+  const followeeExists = await prisma.user.findUnique({ where: { id: followeeId }, select: { id: true } });
+  if (!followeeExists) return NextResponse.json({ error: 'followeeId not found' }, { status: 400 });
       // create follow if not exists
-      await prisma.follow.createMany({ data: [{ followerId: actorId, followeeId }], skipDuplicates: true });
+  await prisma.follow.createMany({ data: [{ followerId: actorId, followeeId }], skipDuplicates: true });
       await prisma.notification.create({ data: {
         userId: followeeId,
         type: 'new_follow',
