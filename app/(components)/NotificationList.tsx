@@ -100,7 +100,7 @@ export default function NotificationList() {
   const [sort, setSort] = useState<'chrono' | 'ai'>('chrono');
   const [loading, setLoading] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const { selectedUser: userId } = useUser();
+  const { selectedUser: userId, setSelectedUser } = useUser();
   const [demoLoading, setDemoLoading] = useState(false);
   const { Toast, showToast } = useNotificationToast();
 
@@ -115,7 +115,7 @@ export default function NotificationList() {
 
     // Validate user ID format to avoid unnecessary requests
     if (typeof userId !== 'string' || !userId.trim()) {
-      setUserId(null);
+      setSelectedUser(null);
       // remove ?user param if invalid (client-side history replace)
       try {
         const params = new URLSearchParams(window.location.search || '');
@@ -155,7 +155,7 @@ export default function NotificationList() {
         } catch (e) {
           // ignore
         }
-        setUserId(null);
+        setSelectedUser(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
       }
@@ -184,7 +184,7 @@ export default function NotificationList() {
         } catch (e) {
           // ignore
         }
-        setUserId(null);
+        setSelectedUser(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
       }
@@ -206,7 +206,7 @@ export default function NotificationList() {
           window.history.replaceState({}, '', url);
           window.dispatchEvent(new Event('popstate'));
         } catch (e) {}
-        setUserId(null);
+        setSelectedUser(null);
         showToast('Selected user is invalid. Please select a demo user.', 'error');
       } else {
         showToast('Failed to load notifications. Please try again.', 'error');
@@ -367,11 +367,11 @@ export default function NotificationList() {
               const udata = await ures.json();
               const has = Array.isArray(udata.users) && udata.users.find((u: any) => u.id === userId);
               if (!has) {
-                try { localStorage.removeItem('insyd_user'); } catch (e) {}
-                setUserId(null);
-                showToast('Selected user is no longer valid after reseed. Please select a demo user.', 'error');
-                return;
-              }
+                    try { localStorage.removeItem('insyd_user'); } catch (e) {}
+                    setSelectedUser(null);
+                    showToast('Selected user is no longer valid after reseed. Please select a demo user.', 'error');
+                    return;
+                  }
             } catch (e) {
               // ignore
             }
