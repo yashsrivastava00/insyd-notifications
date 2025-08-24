@@ -33,6 +33,12 @@ export default function UserSelector() {
         throw new Error('Invalid user data received');
       }
       setUsers(data.users);
+      // If stored selection is no longer present in the fetched users, clear it to avoid 404s
+      const stored = localStorage.getItem('insyd_user');
+      if (stored && !data.users.find((u: any) => u.id === stored)) {
+        setSelected(null);
+        localStorage.removeItem('insyd_user');
+      }
     } catch (err) {
       setError('Failed to load users. Please try again.');
       console.error('Error fetching users:', err);

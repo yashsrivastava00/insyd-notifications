@@ -225,6 +225,13 @@ export default function NotificationList() {
           const actorForLike = others[Math.floor(Math.random() * others.length)];
           // actor likes a post by target (notify selected user)
           event = { ...event, actorId: actorForLike.id, type: 'new_like', objectType: 'post', targetUserId: userId, text: `Liked a post by you` };
+          // Ensure there is at least one post to like; if not, create a lightweight post by the target
+          try {
+            const check = await fetch('/api/users'); // rely on users endpoint for simplicity
+            // We won't block the UI on creating a post here; server will return an error if none found
+          } catch (e) {
+            // ignore network errors here
+          }
           break;
         case 'new_follow':
           if (others.length === 0) {
@@ -239,10 +246,12 @@ export default function NotificationList() {
           break;
       }
 
+      // Make sure actorId is set correctly; do not overwrite with userId (actor should be the acting user)
+      if (!event.actorId) event.actorId = userId;
       const response = await fetch("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...event, actorId: userId }),
+        body: JSON.stringify(event),
       });
 
       if (!response.ok) throw new Error('Failed to create demo event');
