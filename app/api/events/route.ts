@@ -76,12 +76,20 @@ export async function POST(req: NextRequest) {
       if (!post) {
         post = await prisma.post.findFirst({ orderBy: { createdAt: 'desc' } });
       }
+      // If we still have no post, attempt to create a lightweight post by the target user (if present) as a fallback
+      if (!post && targetUserId) {
+        try {
+          post = await prisma.post.create({ data: { authorId: targetUserId, content: 'Auto-created post for demo like' } });
+        } catch (err) {
+          console.error('Failed to create fallback post for like:', err);
+        }
+      }
       if (!post) return NextResponse.json({ error: 'No post available to like' }, { status: 400 });
 
-  // ensure user still exists before creating reaction
-  const reactorExists = await prisma.user.findUnique({ where: { id: actorId }, select: { id: true } });
-  if (!reactorExists) return NextResponse.json({ error: 'actorId not found' }, { status: 400 });
-  await prisma.reaction.create({ data: { postId: post.id, userId: actorId, type: 'like' } });
+      // ensure user still exists before creating reaction
+      const reactorExists = await prisma.user.findUnique({ where: { id: actorId }, select: { id: true } });
+      if (!reactorExists) return NextResponse.json({ error: 'actorId not found' }, { status: 400 });
+      await prisma.reaction.create({ data: { postId: post.id, userId: actorId, type: 'like' } });
       if (post.authorId !== actorId) {
         await prisma.notification.create({ data: {
           userId: post.authorId,
@@ -133,7 +141,8 @@ export async function POST(req: NextRequest) {
       text: event.text || 'event'
     }});
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message || 'Event error' }, { status: 400 });
+    } catch (e: any) {
+    console.error('Error handling event:', e);
+    return NextResponse.json({ error: e?.message || 'Event error', stack: e?.stack }, { status: 400 });
   }
 }

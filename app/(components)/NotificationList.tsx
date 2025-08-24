@@ -272,9 +272,34 @@ export default function NotificationList() {
       });
 
       if (!response.ok) {
-        // If the event failed due to foreign key constraints (stale IDs after reseed), refresh users and clear invalid selection
+        // Read server body for a helpful error
         let body = null;
         try { body = await response.json(); } catch (e) { /* ignore */ }
+
+        // If server indicates no post exists for a 'like', create a lightweight post first and retry once
+        if (type === 'new_like' && body && typeof body.error === 'string' && body.error.toLowerCase().includes('no post available')) {
+          // create a lightweight post by the target (notifyUserId)
+          try {
+            const createPostRes = await fetch('/api/events', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'new_post', actorId: event.actorId, notifyUserId: event.notifyUserId, text: 'Auto post for demo like' })
+            });
+            if (createPostRes.ok) {
+              // retry the like once
+              const retryRes = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(event) });
+              if (retryRes.ok) {
+                showToast(`Demo ${type.replace('new_', '')} created`, 'success');
+                setTimeout(() => void fetchNotifications(), 600);
+                return;
+              }
+            }
+          } catch (e) {
+            // ignore and fall through to generic error
+          }
+        }
+
+        // If the event failed due to foreign key constraints (stale IDs after reseed), refresh users and clear invalid selection
         if (response.status === 400 && body && typeof body.error === 'string') {
           const err = body.error;
           if (err.toLowerCase().includes('foreign key') || err.toLowerCase().includes('actorid') || err.toLowerCase().includes('followeeid')) {
