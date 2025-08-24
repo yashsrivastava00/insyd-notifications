@@ -50,10 +50,29 @@ export default function UserSelector() {
     }
   }
 
-  // Handle user selection
-  function selectUser(id: string) {
+  // Handle user selection with validation
+  async function selectUser(id: string) {
     setSelected(id);
     localStorage.setItem('insyd_user', id);
+    
+    // Validate the user exists immediately after selection
+    try {
+      const response = await fetch(`/api/users/${id}/notifications`);
+      const data = await response.json();
+      
+      if (data.meta?.userMissing) {
+        setSelected(null);
+        localStorage.removeItem('insyd_user');
+        setError('Selected user not found. Please try again or reseed data.');
+        return;
+      }
+      
+      // Reload the page to refresh all components with new user
+      window.location.reload();
+    } catch (err) {
+      console.error('Error validating user:', err);
+      setError('Failed to validate user. Please try again.');
+    }
   }
 
   // Handle seeding data

@@ -114,6 +114,13 @@ export default function NotificationList() {
   const fetchNotifications = useCallback(async () => {
     if (!userId) return;
 
+    // Validate user ID format to avoid unnecessary requests
+    if (typeof userId !== 'string' || !userId.trim()) {
+      setUserId(null);
+      localStorage.removeItem('insyd_user');
+      return;
+    }
+
     // Cancel any in-flight request before starting a new one
     try {
       abortRef.current?.abort();
@@ -125,31 +132,53 @@ export default function NotificationList() {
 
     setLoading(true);
     try {
-      const response = await fetch(
-        `/api/users/${userId}/notifications?sort=${sort}&unreadOnly=${unreadOnly}&limit=50`,
-        { signal: controller.signal }
-      );
-      const data = await response.json();
+      // First validate that the user still exists
+      const validateResponse = await fetch(`/api/users`, { signal: controller.signal });
+      const userData = await validateResponse.json();
       
-      // If userMissing flag is true, user needs to select a new one
-      if (data.meta?.userMissing) {
-        try {
-          localStorage.removeItem('insyd_user');
-        } catch (e) {
-          /* ignore */
-        }
+      if (!Array.isArray(userData.users) || !userData.users.find((u: any) => u.id === userId)) {
+        localStorage.removeItem('insyd_user');
         setUserId(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
       }
+
+      // Then fetch notifications
+      const response = await fetch(
+        `/api/users/${userId}/notifications?sort=${sort}&unreadOnly=${unreadOnly}&limit=50`,
+        { signal: controller.signal }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch notifications');
+      }
+
+      const data = await response.json();
+      
+      // Double check userMissing flag
+      if (data.meta?.userMissing) {
+        localStorage.removeItem('insyd_user');
+        setUserId(null);
+        showToast('Selected user not found. Please select a demo user.', 'error');
+        return;
+      }
+
       setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
     } catch (error: any) {
       if (error && error.name === 'AbortError') {
         // Request was aborted; don't show an error toast in this case
         return;
       }
-      showToast('Failed to load notifications', 'error');
       console.error('Error fetching notifications:', error);
+      
+      // Clear invalid user state
+      if (error.message?.includes('not found') || error.message?.includes('invalid')) {
+        localStorage.removeItem('insyd_user');
+        setUserId(null);
+        showToast('Selected user is invalid. Please select a demo user.', 'error');
+      } else {
+        showToast('Failed to load notifications. Please try again.', 'error');
+      }
     } finally {
       setLoading(false);
     }
