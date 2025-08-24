@@ -1,0 +1,9 @@
+{
+  "/page": "app/page.js",
+  "/api/seed/route": "app/api/seed/route.js",
+  "/api/users/[userId]/notifications/route": "app/api/users/[userId]/notifications/route.js",
+  "/notifications/page": "app/notifications/page.js",
+  "/api/events/route": "app/api/events/route.js",
+  "/digest/page": "app/digest/page.js",
+  "/api/users/[userId]/activity/route": "app/api/users/[userId]/activity/route.js"
+}
