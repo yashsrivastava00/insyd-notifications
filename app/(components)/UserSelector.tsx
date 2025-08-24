@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 interface User {
   id: string;
@@ -14,12 +15,15 @@ export default function UserSelector() {
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load users and stored selection
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Load users and selection from URL query param
   useEffect(() => {
     fetchUsers();
-    const stored = localStorage.getItem('insyd_user');
-    if (stored) setSelected(stored);
-  }, []);
+    const userParam = searchParams?.get('user');
+    if (userParam) setSelected(userParam);
+  }, [searchParams]);
 
   // Fetch users with error handling
   async function fetchUsers() {
@@ -50,29 +54,13 @@ export default function UserSelector() {
     }
   }
 
-  // Handle user selection with validation
-  async function selectUser(id: string) {
+  // Handle user selection by updating the URL query param (no localStorage)
+  function selectUser(id: string) {
     setSelected(id);
-    localStorage.setItem('insyd_user', id);
-    
-    // Validate the user exists immediately after selection
-    try {
-      const response = await fetch(`/api/users/${id}/notifications`);
-      const data = await response.json();
-      
-      if (data.meta?.userMissing) {
-        setSelected(null);
-        localStorage.removeItem('insyd_user');
-        setError('Selected user not found. Please try again or reseed data.');
-        return;
-      }
-      
-      // Reload the page to refresh all components with new user
-      window.location.reload();
-    } catch (err) {
-      console.error('Error validating user:', err);
-      setError('Failed to validate user. Please try again.');
-    }
+    // update ?user= query param on the current path
+    const params = new URLSearchParams(window.location.search || '');
+    params.set('user', id);
+    router.push(`${window.location.pathname}?${params.toString()}`);
   }
 
   // Handle seeding data

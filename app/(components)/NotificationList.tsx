@@ -1,6 +1,7 @@
 
 "use client";
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams, useRouter } from 'next/navigation';
 
 // Types for better code organization and type safety
 interface Notification {
@@ -19,12 +20,13 @@ interface NotificationToast {
   type: 'success' | 'error';
 }
 
-// Utility functions
-function getUserId() {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem("insyd_user");
+// Utility: read user id from ?user=<id> query param
+function getUserIdFromParams(searchParams: any | null) {
+  try {
+    return searchParams?.get?.('user') || null;
+  } catch (e) {
+    return null;
   }
-  return null;
 }
 
 function formatRelativeTime(date: string) {
@@ -99,14 +101,18 @@ export default function NotificationList() {
   const [sort, setSort] = useState<'chrono' | 'ai'>('chrono');
   const [loading, setLoading] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [userId, setUserId] = useState<string | null>(() => {
+    try { return (searchParams as any)?.get?.('user') || null; } catch (e) { return null; }
+  });
   const [demoLoading, setDemoLoading] = useState(false);
   const { Toast, showToast } = useNotificationToast();
 
-  // Set up user ID from local storage
+  // Keep userId in sync with URL param
   useEffect(() => {
-    setUserId(getUserId());
-  }, []);
+    setUserId(getUserIdFromParams(searchParams as any | null));
+  }, [searchParams]);
 
   // Fetch notifications with error handling and cancellation support
   const abortRef = /*#__PURE__*/ { current: null as AbortController | null };
@@ -117,7 +123,14 @@ export default function NotificationList() {
     // Validate user ID format to avoid unnecessary requests
     if (typeof userId !== 'string' || !userId.trim()) {
       setUserId(null);
-      localStorage.removeItem('insyd_user');
+      // remove ?user param if invalid
+      try {
+        const params = new URLSearchParams(window.location.search || '');
+        params.delete('user');
+        router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+      } catch (e) {
+        // ignore
+      }
       return;
     }
 
@@ -137,7 +150,14 @@ export default function NotificationList() {
       const userData = await validateResponse.json();
       
       if (!Array.isArray(userData.users) || !userData.users.find((u: any) => u.id === userId)) {
-        localStorage.removeItem('insyd_user');
+        // clear ?user param
+        try {
+          const params = new URLSearchParams(window.location.search || '');
+          params.delete('user');
+          router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+        } catch (e) {
+          // ignore
+        }
         setUserId(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
@@ -157,7 +177,14 @@ export default function NotificationList() {
       
       // Double check userMissing flag
       if (data.meta?.userMissing) {
-        localStorage.removeItem('insyd_user');
+        // clear ?user param
+        try {
+          const params = new URLSearchParams(window.location.search || '');
+          params.delete('user');
+          router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+        } catch (e) {
+          // ignore
+        }
         setUserId(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
@@ -173,7 +200,11 @@ export default function NotificationList() {
       
       // Clear invalid user state
       if (error.message?.includes('not found') || error.message?.includes('invalid')) {
-        localStorage.removeItem('insyd_user');
+        try {
+          const params = new URLSearchParams(window.location.search || '');
+          params.delete('user');
+          router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+        } catch (e) {}
         setUserId(null);
         showToast('Selected user is invalid. Please select a demo user.', 'error');
       } else {
