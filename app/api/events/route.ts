@@ -10,12 +10,25 @@ function truncate(str: string | undefined, n = 120) {
 
 export async function POST(req: NextRequest) {
   try {
-    const event = await req.json();
+    const raw = await req.text();
+    let event: any;
+    try {
+      event = JSON.parse(raw || '{}');
+    } catch (err) {
+      console.error('events: invalid JSON payload', raw?.slice(0, 200));
+      return NextResponse.json({ error: 'invalid JSON payload' }, { status: 400 });
+    }
     const type = event.type;
   const actorId: string = event.actorId;
   const notifyUserId: string | undefined = event.notifyUserId;
 
-  if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 });
+  // log a short copy of the incoming payload for debugging in production
+  try { console.info('events: received', { type, actorId, notifyUserId, objectId: event.objectId, text: truncate(event.text, 120) }); } catch (err) {}
+
+  if (!actorId) {
+    console.warn('events: missing actorId', raw?.slice(0, 300));
+    return NextResponse.json({ error: 'actorId required' }, { status: 400 });
+  }
   // ensure actor exists
   const actorExists = await prisma.user.findUnique({ where: { id: actorId }, select: { id: true } });
   if (!actorExists) return NextResponse.json({ error: 'actorId not found' }, { status: 400 });
