@@ -1,4 +1,3 @@
-
 "use client";
 import { useEffect, useState, useCallback } from "react";
 
@@ -124,11 +123,13 @@ export default function NotificationList() {
     // Validate user ID format to avoid unnecessary requests
     if (typeof userId !== 'string' || !userId.trim()) {
       setUserId(null);
-      // remove ?user param if invalid
+      // remove ?user param if invalid (client-side history replace)
       try {
         const params = new URLSearchParams(window.location.search || '');
         params.delete('user');
-        router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+        const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+        window.history.replaceState({}, '', url);
+        window.dispatchEvent(new Event('popstate'));
       } catch (e) {
         // ignore
       }
