@@ -14,15 +14,28 @@ export default function UserSelector() {
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load users and selection from URL query param using window.location (client-side only)
+  // Load users and selection from both URL and localStorage
   useEffect(() => {
     fetchUsers();
     try {
+      // Try to get user from URL first, then fallback to localStorage
       const params = new URLSearchParams(window.location.search || '');
       const userParam = params.get('user');
-      if (userParam) setSelected(userParam);
+      const storedUser = localStorage.getItem('insyd_user');
+      
+      if (userParam) {
+        setSelected(userParam);
+        localStorage.setItem('insyd_user', userParam);
+      } else if (storedUser) {
+        setSelected(storedUser);
+        // Update URL to match stored user
+        const newParams = new URLSearchParams(window.location.search);
+        newParams.set('user', storedUser);
+        const newUrl = `${window.location.pathname}?${newParams.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+      }
     } catch (e) {
-      // ignore
+      console.error('Error loading user selection:', e);
     }
   }, []);
 
@@ -55,31 +68,68 @@ export default function UserSelector() {
     }
   }
 
-  // Handle user selection by updating the URL query param (no localStorage)
+  // Handle user selection by updating both URL and localStorage
   function selectUser(id: string) {
     setSelected(id);
     try {
+      // Update localStorage
+      if (id) {
+        localStorage.setItem('insyd_user', id);
+      } else {
+        localStorage.removeItem('insyd_user');
+      }
+
+      // Update URL
       const params = new URLSearchParams(window.location.search || '');
-      params.set('user', id);
+      if (id) {
+        params.set('user', id);
+      } else {
+        params.delete('user');
+      }
       const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
       window.history.pushState({}, '', url);
-      // allow other client components to react to URL change
+      
+      // Dispatch events for other components
       window.dispatchEvent(new Event('popstate'));
+      window.dispatchEvent(new CustomEvent('userChanged', { detail: { userId: id } }));
     } catch (e) {
-      // ignore
+      console.error('Error updating user selection:', e);
     }
   }
 
-  // Handle seeding data
+  // Handle seeding data with better error handling and state management
   async function seedData() {
     setSeeding(true);
     setError(null);
+    
+    // Clear current selection first
+    setSelected(null);
+    localStorage.removeItem('insyd_user');
+    
     try {
-      const response = await fetch('/api/seed', { method: 'POST' });
-      if (!response.ok) throw new Error('Failed to seed data');
-      window.location.reload();
-    } catch (err) {
-      setError('Failed to seed data. Please try again.');
+      const response = await fetch('/api/seed', { 
+        method: 'POST',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to seed data');
+      }
+
+      // Clear any existing query params
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+      
+      // Fetch fresh user list
+      await fetchUsers();
+      
+      // Show success message
+      setError('Data reseeded successfully! Please select a user.');
+    } catch (err: any) {
+      setError(`Failed to seed data: ${err.message}`);
       console.error('Error seeding data:', err);
     } finally {
       setSeeding(false);

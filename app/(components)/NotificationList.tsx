@@ -100,7 +100,26 @@ export default function NotificationList() {
   const [loading, setLoading] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [userId, setUserId] = useState<string | null>(() => {
-    try { const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''); return params.get('user') || null } catch (e) { return null; }
+    if (typeof window === 'undefined') return null;
+    try { 
+      // First try URL params
+      const params = new URLSearchParams(window.location.search);
+      const urlUser = params.get('user');
+      if (urlUser) return urlUser;
+      
+      // Then try localStorage
+      const storedUser = localStorage.getItem('insyd_user');
+      if (storedUser) {
+        // Update URL to match stored user
+        const newParams = new URLSearchParams(window.location.search);
+        newParams.set('user', storedUser);
+        const newUrl = `${window.location.pathname}?${newParams.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+        return storedUser;
+      }
+      
+      return null;
+    } catch (e) { return null; }
   });
   const [demoLoading, setDemoLoading] = useState(false);
   const { Toast, showToast } = useNotificationToast();

@@ -15,7 +15,7 @@
   "vercel-build": "npx prisma generate && npx prisma db push && next build"
   },
   "engines": {
-    "node": "18.x"
+    "node": "22.x"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",
