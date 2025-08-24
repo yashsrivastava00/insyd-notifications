@@ -1,7 +1,6 @@
 
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import { useSearchParams, useRouter } from 'next/navigation';
 
 // Types for better code organization and type safety
 interface Notification {
@@ -101,18 +100,20 @@ export default function NotificationList() {
   const [sort, setSort] = useState<'chrono' | 'ai'>('chrono');
   const [loading, setLoading] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const searchParams = useSearchParams();
-  const router = useRouter();
   const [userId, setUserId] = useState<string | null>(() => {
-    try { return (searchParams as any)?.get?.('user') || null; } catch (e) { return null; }
+    try { const params = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : ''); return params.get('user') || null } catch (e) { return null; }
   });
   const [demoLoading, setDemoLoading] = useState(false);
   const { Toast, showToast } = useNotificationToast();
 
-  // Keep userId in sync with URL param
+  // Keep userId in sync with URL param by listening for popstate (pushState triggers popstate via UserSelector)
   useEffect(() => {
-    setUserId(getUserIdFromParams(searchParams as any | null));
-  }, [searchParams]);
+    const onPop = () => {
+      try { const p = new URLSearchParams(window.location.search || ''); setUserId(p.get('user') || null); } catch (e) { /* ignore */ }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // Fetch notifications with error handling and cancellation support
   const abortRef = /*#__PURE__*/ { current: null as AbortController | null };
@@ -154,7 +155,9 @@ export default function NotificationList() {
         try {
           const params = new URLSearchParams(window.location.search || '');
           params.delete('user');
-          router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+          const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+          window.history.replaceState({}, '', url);
+          window.dispatchEvent(new Event('popstate'));
         } catch (e) {
           // ignore
         }
@@ -181,7 +184,9 @@ export default function NotificationList() {
         try {
           const params = new URLSearchParams(window.location.search || '');
           params.delete('user');
-          router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+          const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+          window.history.replaceState({}, '', url);
+          window.dispatchEvent(new Event('popstate'));
         } catch (e) {
           // ignore
         }
@@ -203,7 +208,9 @@ export default function NotificationList() {
         try {
           const params = new URLSearchParams(window.location.search || '');
           params.delete('user');
-          router.replace(`${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`);
+          const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+          window.history.replaceState({}, '', url);
+          window.dispatchEvent(new Event('popstate'));
         } catch (e) {}
         setUserId(null);
         showToast('Selected user is invalid. Please select a demo user.', 'error');

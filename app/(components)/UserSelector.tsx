@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
 
 interface User {
   id: string;
@@ -15,15 +14,17 @@ export default function UserSelector() {
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  // Load users and selection from URL query param
+  // Load users and selection from URL query param using window.location (client-side only)
   useEffect(() => {
     fetchUsers();
-    const userParam = searchParams?.get('user');
-    if (userParam) setSelected(userParam);
-  }, [searchParams]);
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const userParam = params.get('user');
+      if (userParam) setSelected(userParam);
+    } catch (e) {
+      // ignore
+    }
+  }, []);
 
   // Fetch users with error handling
   async function fetchUsers() {
@@ -57,10 +58,16 @@ export default function UserSelector() {
   // Handle user selection by updating the URL query param (no localStorage)
   function selectUser(id: string) {
     setSelected(id);
-    // update ?user= query param on the current path
-    const params = new URLSearchParams(window.location.search || '');
-    params.set('user', id);
-    router.push(`${window.location.pathname}?${params.toString()}`);
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      params.set('user', id);
+      const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+      window.history.pushState({}, '', url);
+      // allow other client components to react to URL change
+      window.dispatchEvent(new Event('popstate'));
+    } catch (e) {
+      // ignore
+    }
   }
 
   // Handle seeding data
