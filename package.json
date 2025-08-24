@@ -12,7 +12,7 @@
     "prisma:seed": "npx tsx prisma/seed.ts",
     "smoke": "node ./scripts/smoke-test.js",
     "format": "prettier --write .",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build"
+  "vercel-build": "npx prisma generate && npx prisma db push && next build"
   },
   "engines": {
     "node": ">=18"
