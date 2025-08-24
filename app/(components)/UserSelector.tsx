@@ -1,140 +1,15 @@
 "use client";
-import { useEffect, useState } from 'react';
-
-interface User {
-  id: string;
-  name: string;
-  bio: string;
-}
+import { useUser } from '../context/UserContext';
 
 export default function UserSelector() {
-  const [users, setUsers] = useState<User[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [seeding, setSeeding] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Load users and selection from both URL and localStorage
-  useEffect(() => {
-    fetchUsers();
-    try {
-      // Try to get user from URL first, then fallback to localStorage
-      const params = new URLSearchParams(window.location.search || '');
-      const userParam = params.get('user');
-      const storedUser = localStorage.getItem('insyd_user');
-      
-      if (userParam) {
-        setSelected(userParam);
-        localStorage.setItem('insyd_user', userParam);
-      } else if (storedUser) {
-        setSelected(storedUser);
-        // Update URL to match stored user
-        const newParams = new URLSearchParams(window.location.search);
-        newParams.set('user', storedUser);
-        const newUrl = `${window.location.pathname}?${newParams.toString()}`;
-        window.history.replaceState({}, '', newUrl);
-      }
-    } catch (e) {
-      console.error('Error loading user selection:', e);
-    }
-  }, []);
-
-  // Fetch users with error handling
-  async function fetchUsers() {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/users');
-      if (!response.ok) throw new Error('Failed to fetch users');
-      const data = await response.json();
-      if (!data.users || !Array.isArray(data.users)) {
-        throw new Error('Invalid user data received');
-      }
-      setUsers(data.users);
-      // If stored selection is no longer present in the fetched users, clear it to avoid 404s
-      const stored = localStorage.getItem('insyd_user');
-      if (stored && !data.users.find((u: any) => u.id === stored)) {
-        setSelected(null);
-        localStorage.removeItem('insyd_user');
-      }
-    } catch (err) {
-      setError('Failed to load users. Please try again.');
-      console.error('Error fetching users:', err);
-      // Clear selected user if we can't fetch the list
-      setSelected(null);
-      localStorage.removeItem('insyd_user');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Handle user selection by updating both URL and localStorage
-  function selectUser(id: string) {
-    setSelected(id);
-    try {
-      // Update localStorage
-      if (id) {
-        localStorage.setItem('insyd_user', id);
-      } else {
-        localStorage.removeItem('insyd_user');
-      }
-
-      // Update URL
-      const params = new URLSearchParams(window.location.search || '');
-      if (id) {
-        params.set('user', id);
-      } else {
-        params.delete('user');
-      }
-      const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
-      window.history.pushState({}, '', url);
-      
-      // Dispatch events for other components
-      window.dispatchEvent(new Event('popstate'));
-      window.dispatchEvent(new CustomEvent('userChanged', { detail: { userId: id } }));
-    } catch (e) {
-      console.error('Error updating user selection:', e);
-    }
-  }
-
-  // Handle seeding data with better error handling and state management
-  async function seedData() {
-    setSeeding(true);
-    setError(null);
-    
-    // Clear current selection first
-    setSelected(null);
-    localStorage.removeItem('insyd_user');
-    
-    try {
-      const response = await fetch('/api/seed', { 
-        method: 'POST',
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to seed data');
-      }
-
-      // Clear any existing query params
-      const cleanUrl = window.location.pathname;
-      window.history.replaceState({}, '', cleanUrl);
-      
-      // Fetch fresh user list
-      await fetchUsers();
-      
-      // Show success message
-      setError('Data reseeded successfully! Please select a user.');
-    } catch (err: any) {
-      setError(`Failed to seed data: ${err.message}`);
-      console.error('Error seeding data:', err);
-    } finally {
-      setSeeding(false);
-    }
-  }
+  const { 
+    users, 
+    selectedUser, 
+    setSelectedUser, 
+    loading, 
+    error, 
+    reseedData 
+  } = useUser();
 
   return (
     <div className="mb-6 bg-white rounded-lg shadow-sm p-4 border">
@@ -153,9 +28,9 @@ export default function UserSelector() {
                 disabled:bg-gray-100 disabled:cursor-not-allowed
                 ${error ? 'border-red-300' : 'border-gray-300'}
                 ${loading ? 'animate-pulse' : ''}`}
-              value={selected || ''}
-              onChange={e => selectUser(e.target.value)}
-              disabled={loading || seeding}
+              value={selectedUser || ''}
+              onChange={e => setSelectedUser(e.target.value || null)}
+              disabled={loading}
             >
               <option value="">Choose a user...</option>
               {users.map(u => (
@@ -180,14 +55,14 @@ export default function UserSelector() {
           <button
             className={`px-4 py-2 rounded-lg font-medium text-white shadow-sm 
               transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2
-              ${seeding
+              ${loading
                 ? 'bg-gray-400 cursor-not-allowed'
                 : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:ring-indigo-500'}`}
-            onClick={seedData}
-            disabled={seeding}
+            onClick={reseedData}
+            disabled={loading}
             title="Populate demo users, posts and notifications"
           >
-            {seeding ? (
+            {loading ? (
               <span className="flex items-center gap-2">
                 <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -208,7 +83,7 @@ export default function UserSelector() {
         </div>
       </div>
       
-      {selected && (
+      {selectedUser && (
         <div className="mt-4 text-sm text-gray-500">
           <p>You can now create and interact with notifications as this user.</p>
         </div>
