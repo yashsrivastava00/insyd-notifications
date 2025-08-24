@@ -1,5 +1,9 @@
 import { getEmbedding } from '../src/lib/hf-client';
-import { prisma } from '../src/lib/prismadb';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient({
+  log: ['query', 'info', 'warn', 'error'],
+});
 
 // Demo users with roles and personalities for better interaction
 const DEMO_USERS = [
@@ -25,6 +29,27 @@ export async function seedDatabase(options?: { fast?: boolean }) {
   console.log('🌱 Starting database seed... (fast=', fast, ')');
 
   try {
+    // Test database connection
+    console.log('Testing database connection...');
+    await prisma.$connect();
+    console.log('Database connected successfully');
+    
+    // Clear existing data
+    console.log('Clearing existing data...');
+    await prisma.notification.deleteMany()
+      .catch((e: Error) => console.error('Error clearing notifications:', e));
+      
+    await prisma.reaction.deleteMany()
+      .catch((e: Error) => console.error('Error clearing reactions:', e));
+      
+    await prisma.post.deleteMany()
+      .catch((e: Error) => console.error('Error clearing posts:', e));
+      
+    await prisma.follow.deleteMany()
+      .catch((e: Error) => console.error('Error clearing follows:', e));
+      
+    await prisma.user.deleteMany()
+      .catch((e: Error) => console.error('Error clearing users:', e));
     // Clear existing data
     console.log('Clearing existing data...');
     await prisma.notification.deleteMany({});
@@ -201,11 +226,14 @@ function truncate(str: string, n: number): string {
   return str.length > n ? str.slice(0, n - 1) + '…' : str;
 }
 
-// For ES module: run seed if executed directly
-if (import.meta.url === `file://${process.argv[1]}`) {
+// If this file is executed directly (node tsx prisma/seed.ts), run the seed.
+// When imported (for example by API routes), do NOT auto-run the seed.
+declare const require: any;
+if (typeof require !== 'undefined' && require.main === module) {
   seedDatabase()
     .then(r => {
       console.log('Seeded:', r);
+      // exit only when run as a standalone script
       process.exit(0);
     })
     .catch(e => {

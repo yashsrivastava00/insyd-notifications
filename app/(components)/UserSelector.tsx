@@ -26,13 +26,19 @@ export default function UserSelector() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/seed');
+      const response = await fetch('/api/users');
       if (!response.ok) throw new Error('Failed to fetch users');
       const data = await response.json();
-      setUsers(data.users || []);
+      if (!data.users || !Array.isArray(data.users)) {
+        throw new Error('Invalid user data received');
+      }
+      setUsers(data.users);
     } catch (err) {
       setError('Failed to load users. Please try again.');
       console.error('Error fetching users:', err);
+      // Clear selected user if we can't fetch the list
+      setSelected(null);
+      localStorage.removeItem('insyd_user');
     } finally {
       setLoading(false);
     }

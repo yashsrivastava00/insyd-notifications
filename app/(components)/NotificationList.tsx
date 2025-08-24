@@ -30,11 +30,24 @@ function getUserId() {
 function formatRelativeTime(date: string) {
   const d = new Date(date);
   const now = new Date();
-  const diff = (now.getTime() - d.getTime()) / 1000;
+  const diff = Math.max(0, (now.getTime() - d.getTime()) / 1000); // ensure non-negative
+  
+  // Handle future dates (shouldn't happen, but just in case)
+  if (diff < 0) return 'just now';
+  
+  // More granular time differences
+  if (diff < 30) return 'just now';
   if (diff < 60) return `${Math.floor(diff)}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return d.toLocaleDateString();
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`; // within a week
+  
+  // For older dates, show the actual date
+  return d.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
 }
 
 function truncateText(str: string, n: number) {
@@ -179,39 +192,50 @@ export default function NotificationList() {
     if (!userId) return;
     setDemoLoading(true);
     try {
-      const usersRes = await fetch("/api/seed");
+      // Actor should be the currently selected demo user (no random actor)
+      if (!userId) {
+        showToast('Please select a demo user first', 'error');
+        setDemoLoading(false);
+        return;
+      }
+
+      // Fetch other users only when we need a target (for like/follow targeting)
+      const usersRes = await fetch('/api/users');
       const usersData = await usersRes.json();
-      const users = usersData.users.filter((u: any) => u.id !== userId);
-      const randomUser = users[Math.floor(Math.random() * users.length)];
-      
-      let event: any = { type, actorId: userId };
-      
+      const allUsers = Array.isArray(usersData.users) ? usersData.users : [];
+      const others = allUsers.filter((u: any) => u.id !== userId);
+
+  // actor will be a random other user; notifyUserId is the selected user so they receive the notification
+  let event: any = { type, actorId: undefined, notifyUserId: userId };
+
       switch (type) {
-        case "new_post":
-          event = { 
-            ...event, 
-            objectType: "post", 
-            objectId: "", 
-            text: `A new post from ${randomUser.name}` 
-          };
+        case 'new_post':
+          // create a post by the selected user
+          // actor will be a random other user (simulate someone else posting about/for you)
+          const actorForPost = others[Math.floor(Math.random() * others.length)];
+          event = { ...event, actorId: actorForPost.id, objectType: 'post', objectId: '', text: `A new post from ${actorForPost.name}` };
           break;
-        case "new_like":
-          // request a like against a recent post by the random user (server will find a post)
-          event = { 
-            ...event, 
-            type: 'new_like',
-            objectType: "post", 
-            targetUserId: randomUser.id,
-            text: `Liked a post by ${randomUser.name}` 
-          };
+        case 'new_like':
+          if (others.length === 0) {
+            showToast('No other users to like a post from', 'error');
+            setDemoLoading(false);
+            return;
+          }
+          // selected user likes a post by a random other user
+          const actorForLike = others[Math.floor(Math.random() * others.length)];
+          // actor likes a post by target (notify selected user)
+          event = { ...event, actorId: actorForLike.id, type: 'new_like', objectType: 'post', targetUserId: userId, text: `Liked a post by you` };
           break;
-        case "new_follow":
-          event = { 
-            ...event, 
-            objectType: "user", 
-            objectId: randomUser.id, 
-            text: `Started following ${randomUser.name}` 
-          };
+        case 'new_follow':
+          if (others.length === 0) {
+            showToast('No other users to follow', 'error');
+            setDemoLoading(false);
+            return;
+          }
+          // selected user follows a random other user
+          const actorForFollow = others[Math.floor(Math.random() * others.length)];
+          // actorForFollow will follow the selected user (notify selected user)
+          event = { ...event, actorId: actorForFollow.id, objectType: 'user', followeeId: userId, text: `Started following you` };
           break;
       }
 

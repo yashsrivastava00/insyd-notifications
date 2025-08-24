@@ -39,3 +39,16 @@ Notes and tips
 - If you want me to push these changes to your GitHub repo and create a PR, confirm the branch name. I will create a branch, commit the README, and attempt to push (you may need to allow access or provide the remote if not configured).
 
 If you want, I can also add a short section with exact Vercel build commands and a one-click deploy button next.
+
+Vercel: one-click checklist
+1. Push this repository to GitHub (main branch).
+2. In Vercel, import the GitHub repo and set the following Environment Variables:
+	- DATABASE_URL (required)
+	- HF_API_TOKEN (optional)
+	- DISABLE_SEED_API=true (recommended for production)
+3. Vercel will run `npm install` and the `postinstall` hook (`prisma generate`), then run the Next build.
+4. After deployment completes, run any one-off seed locally against the production DB if you need demo data (use the `prisma/seed.ts` script locally with the production `DATABASE_URL`).
+
+Notes:
+- The `app/api/seed` endpoint is disabled in production by default unless you set `DISABLE_SEED_API=false` (not recommended).
+- If your production DB is serverless (Neon), you may want to enable Prisma Data Proxy or use a connection pool to avoid connection exhaustion.

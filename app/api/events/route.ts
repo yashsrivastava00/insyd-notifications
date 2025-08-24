@@ -12,18 +12,26 @@ export async function POST(req: NextRequest) {
   try {
     const event = await req.json();
     const type = event.type;
-    const actorId: string = event.actorId;
+  const actorId: string = event.actorId;
+  const notifyUserId: string | undefined = event.notifyUserId;
 
     if (!actorId) return NextResponse.json({ error: 'actorId required' }, { status: 400 });
 
     // new_post: create a post and notify followers
     if (type === 'new_post') {
       const content = event.text || `New post from user ${actorId}`;
-      const post = await prisma.post.create({ data: { authorId: actorId, content } });
+      const now = new Date();
+      const post = await prisma.post.create({ 
+        data: { 
+          authorId: actorId, 
+          content,
+          createdAt: now 
+        } 
+      });
 
       // notify followers
       const followers = await prisma.follow.findMany({ where: { followeeId: actorId } });
-  const validFollowerIds = followers.map((f: any) => f.followerId).filter(Boolean);
+      const validFollowerIds = followers.map((f: any) => f.followerId).filter(Boolean);
       if (validFollowerIds.length) {
         const existing = await prisma.user.findMany({ where: { id: { in: validFollowerIds } }, select: { id: true } });
   const existingIds = new Set(existing.map((e: any) => e.id));
@@ -38,6 +46,10 @@ export async function POST(req: NextRequest) {
           }))
           .filter((n: any) => existingIds.has(n.userId));
         if (notifs.length) await prisma.notification.createMany({ data: notifs });
+      }
+      // optionally notify a specific user (demo helper)
+      if (notifyUserId) {
+        await prisma.notification.create({ data: { userId: notifyUserId, type: 'new_post', actorId, objectType: 'post', objectId: post.id, text: truncate(content, 140) } });
       }
       return NextResponse.json({ ok: true, createdPost: post.id });
     }
@@ -65,6 +77,10 @@ export async function POST(req: NextRequest) {
           objectId: post.id,
           text: 'Someone liked your post'
         }});
+        // optionally notify a specific user (demo)
+        if (notifyUserId && notifyUserId !== post.authorId) {
+          await prisma.notification.create({ data: { userId: notifyUserId, type: 'new_like', actorId, objectType: 'post', objectId: post.id, text: event.text || 'Someone liked your post' } });
+        }
       }
       return NextResponse.json({ ok: true, likedPost: post.id });
     }
@@ -83,6 +99,10 @@ export async function POST(req: NextRequest) {
         objectId: followeeId,
         text: `Started following you`
       }});
+      // optionally notify another user as well
+      if (notifyUserId && notifyUserId !== followeeId) {
+        await prisma.notification.create({ data: { userId: notifyUserId, type: 'new_follow', actorId, objectType: 'user', objectId: followeeId, text: `Started following you` } });
+      }
       return NextResponse.json({ ok: true });
     }
 
