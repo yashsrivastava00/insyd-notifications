@@ -1,6 +1,7 @@
 
 "use client";
 import { useState } from 'react';
+import * as db from '@/lib/localStorageDB';
 
 export default function DigestPage() {
   const [digest, setDigest] = useState<string>('');
@@ -18,7 +19,7 @@ export default function DigestPage() {
     return d.toLocaleDateString();
   }
 
-  async function generateDigest() {
+  function generateDigest() {
     setLoading(true);
     setError('');
     setDigest('');
@@ -28,23 +29,32 @@ export default function DigestPage() {
       setLoading(false);
       return;
     }
-    const [notifRes, activityRes] = await Promise.all([
-      fetch(`/api/users/${userId}/notifications?sort=ai&unreadOnly=true&limit=100`),
-      fetch(`/api/users/${userId}/activity?days=7`),
-    ]);
-    const [data, activity] = await Promise.all([notifRes.json(), activityRes.json()]);
-    if (!data.notifications) {
-      setError('No notifications.');
-      setLoading(false);
-      return;
-    }
-    // Group by type
+
+    // Get notifications and activities from localStorage
+    const notifications = db.getNotifications(userId, { sort: 'ai', unreadOnly: true });
+
+    // Get posts, likes and follows from the last 7 days
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const posts = db.getPosts().filter(p => p.authorId === userId && new Date(p.createdAt) >= sevenDaysAgo);
+    const reactions = db.getReactions().filter(r => r.userId === userId && r.type === 'like');
+    const follows = db.getFollows().filter(f => f.followerId === userId);
+
+    // Get latest timestamps
+    const lastPost = posts.length > 0 ? Math.max(...posts.map(p => new Date(p.createdAt).getTime())) : null;
+    const lastLike = reactions.length > 0 ? Math.max(...reactions.map(r => new Date(r.createdAt || '').getTime())) : null;
+    const lastFollow = follows.length > 0 ? Math.max(...follows.map(f => new Date(f.createdAt || '').getTime())) : null;
+
+    // Group notifications by type
     const counts: Record<string, number> = {};
-    for (const n of data.notifications) {
+    for (const n of notifications) {
       counts[n.type] = (counts[n.type] || 0) + 1;
     }
+
     const summary = `Today: ${counts['new_follow'] || 0} new follows, ${counts['new_like'] || 0} likes, ${counts['new_comment'] || 0} comments, ${counts['new_post'] || 0} new posts.`
-      + `\nActions performed (last 7 days): ${activity.postsMade || 0} posts made (last: ${formatRelativeTime(activity.lastPostAt || null)}), ${activity.likesMade || 0} likes given (last: ${formatRelativeTime(activity.lastLikeAt || null)}), ${activity.followsMade || 0} follows made (last: ${formatRelativeTime(activity.lastFollowAt || null)}).`;
+      + `\nActions performed (last 7 days): ${posts.length} posts made (last: ${formatRelativeTime(lastPost ? new Date(lastPost).toISOString() : null)}), ${reactions.length} likes given (last: ${formatRelativeTime(lastLike ? new Date(lastLike).toISOString() : null)}), ${follows.length} follows made (last: ${formatRelativeTime(lastFollow ? new Date(lastFollow).toISOString() : null)}).`;
+    
     setDigest(summary);
     setLoading(false);
   }
@@ -55,7 +65,7 @@ export default function DigestPage() {
       <button className="px-4 py-2 bg-blue-600 text-white rounded" onClick={generateDigest} disabled={loading}>
         {loading ? 'Generating...' : 'Generate Digest'}
       </button>
-      {digest && <div className="mt-4 p-3 bg-gray-100 rounded">{digest}</div>}
+      {digest && <div className="mt-4 p-3 bg-gray-100 rounded whitespace-pre-line">{digest}</div>}
       {error && <div className="mt-4 text-red-600">{error}</div>}
     </main>
   );

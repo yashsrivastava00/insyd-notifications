@@ -1,0 +1,113 @@
+# Interview Questions: Insyd Notifications
+
+## I. Easy / Short Questions
+
+1.  **Q: What is the core purpose of this project?**
+    A: To build a proof-of-concept notification system for a social web app, demonstrating a full-stack implementation with a modern, scalable tech stack.
+
+2.  **Q: What is the main technology stack used?**
+    A: Next.js with TypeScript for the frontend and backend, React for the UI, Tailwind CSS for styling, and PostgreSQL with Prisma for the database.
+
+3.  **Q: How are notifications triggered in this system?**
+    A: User actions in the UI (like posting, liking, or following) trigger API calls to an `/api/events` endpoint, which then processes the event and creates notifications.
+
+4.  **Q: What is Prisma, and why was it chosen?**
+    A: Prisma is a modern ORM for Node.js and TypeScript. It was chosen for its type safety, easy-to-use API, and powerful migration system, which simplifies database interactions.
+
+5.  **Q: How does the frontend get new notifications?**
+    A: It uses a simple polling mechanism, making a request to the backend every 15 seconds to fetch new notifications for the currently selected user.
+
+6.  **Q: What is the purpose of the `seed.ts` file?**
+    A: It's a script to populate the database with realistic demo data (users, posts, follows, etc.), which is essential for testing and demonstrating the application's features without manual data entry.
+
+7.  **Q: What are the two ways notifications can be sorted in the UI?**
+    A: Chronologically (newest first) and by "AI Ranking," which uses relevance scores from text embeddings.
+
+8.  **Q: Is the AI component a hard requirement for the system to work?**
+    A: No, it's an optional enhancement. If the Hugging Face API token is not provided, the system falls back to a simple heuristic and continues to function normally.
+
+9.  **Q: What is a "serverless function" in the context of this project?**
+    A: The backend is built using Next.js API Routes, which are deployed as serverless functions on platforms like Vercel. This means the backend logic runs in an environment that automatically scales with demand.
+
+10. **Q: How is user state managed on the frontend?**
+    A: It's managed using React's Context API (`UserContext`), which provides the selected user's information to all components that need it.
+
+## II. Medium Difficulty / Elaboration Questions
+
+11. **Q: The current system uses polling for notification updates. What are the pros and cons of this approach?**
+    A: **Pros:** It's simple to implement and very reliable. **Cons:** It's not real-time, introduces latency (up to the polling interval), and can be inefficient at scale, as it generates many requests even when there are no new notifications.
+
+12. **Q: How would you evolve the notification delivery from polling to a real-time system?**
+    A: I would implement WebSockets or Server-Sent Events (SSE). A WebSocket connection would be ideal for bidirectional communication, allowing the server to instantly push new notifications to the client as soon as they are created, providing a much better user experience.
+
+13. **Q: Explain the database schema. What are the key tables and their relationships?**
+    A: The key tables are `User`, `Post`, `Follow`, `Reaction`, and `Notification`.
+    *   `User` has a one-to-many relationship with `Post` (an author has many posts).
+    *   `Follow` is a join table representing a many-to-many relationship between users.
+    *   `Reaction` has a many-to-one relationship with `Post` and `User`.
+    *   `Notification` has a many-to-one relationship with `User` (the recipient) and a polymorphic association to the event source (like a `Post` or `Follow`).
+
+14. **Q: The current backend processes events synchronously. What is the main drawback of this, and how would you fix it at scale?**
+    A: The main drawback is that it's not resilient to traffic spikes. A sudden burst of events could overwhelm the serverless functions. To fix this, I would introduce a message queue like AWS SQS. The API endpoint would become a lightweight producer that just pushes events to the queue, and a separate fleet of asynchronous workers would consume from the queue to process the events.
+
+15. **Q: What is "notification aggregation" or "de-duping," and why is it important?**
+    A: It's the process of grouping similar notifications together. For example, instead of showing "Alice liked your post," "Bob liked your post," and "Charlie liked your post," you would show "Alice, Bob, and Charlie liked your post." It's important because it reduces noise and makes the notification feed much cleaner and more user-friendly.
+
+16. **Q: How does the AI ranking work at a high level?**
+    A: It uses a sentence transformer model from Hugging Face to convert the text of a notification into a vector embedding (a list of numbers). This vector represents the semantic meaning of the text. When ranking, it can compare these vectors to a user's interests (or other notifications) to determine relevance.
+
+17. **Q: What are some potential performance bottlenecks in the current system?**
+    A: 1) The database, especially with a high volume of reads from polling. 2) The synchronous event processing in the API route. 3) The optional, blocking call to the Hugging Face API, which can add latency.
+
+18. **Q: How would you add support for email or push notifications?**
+    A: I would create a dedicated "Notification Service." When a notification is generated, instead of just writing to the database, the system would send an event to this service. The service would then be responsible for fanning out the notification to the correct channels (in-app, email, push) based on user preferences.
+
+19. **Q: What is the "N+1" query problem, and could it occur in this application?**
+    A: The N+1 problem is when an application makes one initial query and then N subsequent queries to fetch related data, instead of one more efficient query. It could happen here if, for example, we fetched a list of notifications and then looped through them to fetch each actor's user details individually. Prisma helps mitigate this by making it easy to use `include` to fetch related data in a single query.
+
+20. **Q: How do you handle database migrations with Prisma?**
+    A: Prisma has a built-in migration system. You define your schema in the `schema.prisma` file. When you're ready to apply changes, you run `npx prisma migrate dev`, which creates a new SQL migration file and applies it to the database, ensuring the schema is always in sync with the code.
+
+## III. Hard / System Design Questions
+
+21. **Q: Let's say this system needs to scale to 1 million daily active users (DAUs). Walk me through the architectural changes you would make, from the frontend to the database.**
+    A:
+    *   **Frontend/Delivery**: Replace polling with WebSockets for real-time, low-latency delivery.
+    *   **Backend/Event Ingestion**: Decouple event ingestion from processing. The `/api/events` endpoint would become a lightweight producer that pushes raw events into a message queue like AWS SQS or Kafka.
+    *   **Event Processing**: A fleet of asynchronous workers (e.g., AWS Lambda functions) would consume events from the queue. This allows for retries, better fault tolerance, and independent scaling.
+    *   **Database**:
+        *   **Read/Write Splitting**: Use read replicas to handle the high read volume for fetching notifications.
+        *   **Connection Pooling**: Use a service like Prisma Data Proxy or PgBouncer to manage database connections in a serverless environment.
+        *   **Sharding**: At 1M DAUs, we'd likely need to shard the database. We could shard the `Notification` table by `userId` to distribute the load across multiple database instances.
+    *   **Caching**: Introduce a caching layer (like Redis) to store frequently accessed data, such as user profiles or aggregated notification counts.
+
+22. **Q: How would you design a system for notification aggregation to prevent users from being spammed?**
+    A:
+    1.  **Introduce a `state` and `aggregationKey` to the `Notification` model.** The key could be something like `like:{postId}`.
+    2.  When a new "like" event comes in, we check if there's an existing, unread notification with the same `aggregationKey`.
+    3.  If one exists, we update its text (e.g., "Alice and 1 other person liked your post") and increment a counter, instead of creating a new notification.
+    4.  If one doesn't exist, we create a new notification with an initial state.
+    5.  This logic would live in the asynchronous workers. We could use a short-lived Redis entry to handle the locking and aggregation logic to avoid race conditions.
+
+23. **Q: The AI ranking is currently simple. How would you build a more advanced, personalized notification ranking system?**
+    A:
+    1.  **Feature Engineering**: Collect more data points for each notification, such as the type of event, the social graph distance between the actor and recipient, and the recipient's past interactions with similar notifications.
+    2.  **User Profile**: Build a profile for each user based on their activity, storing embeddings of content they've engaged with.
+    3.  **ML Model**: Train a machine learning model (e.g., using XGBoost or a neural network) that takes these features as input and predicts a probability of engagement (like a click or a read).
+    4.  **Real-time Inference**: The model would be deployed to a dedicated inference service. When notifications are fetched, we would call this service to get a relevance score for each one and sort them accordingly.
+    5.  **Feedback Loop**: Continuously retrain the model with new data to keep it up-to-date with user preferences.
+
+24. **Q: How would you ensure high availability and fault tolerance for this system?**
+    A:
+    *   **Redundancy**: Deploy all components (serverless functions, database, queue) across multiple availability zones (AZs).
+    *   **Message Queue**: The queue is key. If the processing workers or the database go down, events are safely stored in the queue and can be processed once the system recovers.
+    *   **Idempotent Workers**: Ensure the event processing workers are idempotent, meaning that processing the same event multiple times won't have unintended side effects. This is crucial for implementing safe retries.
+    *   **Health Checks & Monitoring**: Implement comprehensive monitoring and alerting (e.g., using Datadog or Prometheus) to detect issues early.
+    *   **Database Backups**: Configure automated, point-in-time recovery for the database.
+
+25. **Q: If you had to add analytics to this system (e.g., tracking open rates), how would you implement it?**
+    A:
+    1.  **Tracking Pixel/API Call**: When a notification is rendered in the UI, I'd make a "delivered" API call. When it's clicked, I'd make a "clicked" API call. For emails, this would be a 1x1 tracking pixel.
+    2.  **Analytics Pipeline**: These tracking events would not go to our main application database. They would be sent to a dedicated analytics pipeline, likely starting with a high-throughput message queue like Kafka or AWS Kinesis.
+    3.  **Data Warehouse**: From the queue, the data would be processed and loaded into a data warehouse like Snowflake or BigQuery.
+    4.  **Dashboard**: We would then use a BI tool like Tableau or Looker to build dashboards on top of the data warehouse to visualize metrics like delivery rates, open rates, and click-through rates. This separation of concerns is critical to prevent analytics workloads from impacting the performance

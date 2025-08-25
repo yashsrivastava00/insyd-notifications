@@ -3,7 +3,7 @@ import { UserProvider } from './context/UserContext';
 
 export const metadata = {
   title: 'Insyd Notifications Demo',
-  description: 'A modern notification system POC with Next.js, Prisma, and AI ranking',
+  description: 'A modern notification system POC with Next.js and localStorage',
 }
 
 export default function RootLayout({
@@ -13,15 +13,17 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gray-50">
-        <UserProvider>
-          <main className="container mx-auto px-4 py-8 max-w-3xl">
-            <h1 className="text-2xl font-bold text-gray-900 mb-6">
-              Insyd Notifications Demo
-            </h1>
-            {children}
-          </main>
-        </UserProvider>
+      <body className="min-h-screen bg-gray-50" suppressHydrationWarning>
+        <div suppressHydrationWarning>
+          <UserProvider>
+            <main className="container mx-auto px-4 py-8 max-w-3xl">
+              <h1 className="text-2xl font-bold text-gray-900 mb-6">
+                Insyd Notifications Demo
+              </h1>
+              {children}
+            </main>
+          </UserProvider>
+        </div>
       </body>
     </html>
   )

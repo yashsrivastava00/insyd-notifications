@@ -1,3 +1,6 @@
+'use client';
+
+import React from 'react';
 import UserSelector from '../(components)/UserSelector';
 import NotificationList from '../(components)/NotificationList';
 

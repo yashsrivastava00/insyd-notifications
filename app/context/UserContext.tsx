@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { fetchWithRetry } from '@/lib/fetch-retry';
+import * as db from '@/lib/dataStore';
+import { seedLocalStorage } from '@/lib/seedLocalStorage';
 
 interface User {
   id: string;
@@ -14,8 +15,8 @@ interface UserContextType {
   setSelectedUser: (id: string | null) => void;
   loading: boolean;
   error: string | null;
-  fetchUsers: () => Promise<void>;
-  reseedData: () => Promise<void>;
+  fetchUsers: () => void;
+  reseedData: () => void;
 }
 
 const UserContext = createContext<UserContextType | null>(null);
@@ -26,78 +27,72 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUsers = async () => {
+  const fetchUsers = () => {
     setLoading(true);
     setError(null);
-    try {
-      const response = await fetchWithRetry('/api/users', {
-        headers: { 'Cache-Control': 'no-cache' },
-        retry: { maxRetries: 3, initialDelayMs: 500 }
-      });
-
-      if (!response.ok) throw new Error('Failed to fetch users');
-      const data = await response.json();
-      
-      if (!Array.isArray(data.users)) throw new Error('Invalid user data');
-      
-      // Remove any duplicate users
-      const uniqueUsers = data.users.reduce((acc: User[], curr: User) => {
-        if (!acc.find(u => u.id === curr.id)) {
-          acc.push(curr);
+    
+    const fetchData = async () => {
+      try {
+        const dbUsers = db.getUsers();
+        
+        // Remove any duplicate users
+        const uniqueUsers = dbUsers.reduce((acc: User[], curr: User) => {
+          if (!acc.find(u => u.id === curr.id)) {
+            acc.push(curr);
+          }
+          return acc;
+        }, []);
+        
+        setUsers(uniqueUsers);
+        
+        // Validate current selection
+        if (selectedUser) {
+          const userExists = uniqueUsers.find((u: User) => u.id === selectedUser);
+          if (!userExists) {
+            setSelectedUser(null);
+            syncToUrlAndStorage(null);
+          } else {
+            // Re-sync to ensure state is consistent
+            syncToUrlAndStorage(selectedUser);
+          }
         }
-        return acc;
-      }, []);
-      
-      setUsers(uniqueUsers);
-      
-      // Validate current selection
-      if (selectedUser) {
-        const userExists = uniqueUsers.find((u: User) => u.id === selectedUser);
-        if (!userExists) {
-          setSelectedUser(null);
-          syncToUrlAndStorage(null);
-        } else {
-          // Re-sync to ensure state is consistent
-          syncToUrlAndStorage(selectedUser);
-        }
+        setLoading(false);
+      } catch (err: any) {
+        console.error('Error fetching users:', err);
+        setError(err.message);
+        setSelectedUser(null);
+        syncToUrlAndStorage(null);
+        setLoading(false);
       }
-    } catch (err: any) {
-      console.error('Error fetching users:', err);
-      setError(err.message);
-      setSelectedUser(null);
-      syncToUrlAndStorage(null);
-    } finally {
-      setLoading(false);
-    }
+    };
+
+    // Simulate network delay
+    setTimeout(fetchData, 1500);
   };
 
-  const reseedData = async () => {
+  const reseedData = () => {
     setLoading(true);
     setError(null);
-    try {
-      // Clear selection first
-      setSelectedUser(null);
-      syncToUrlAndStorage(null);
-      
-      const response = await fetchWithRetry('/api/seed', {
-        method: 'POST',
-        headers: { 'Cache-Control': 'no-cache' },
-        retry: { maxRetries: 2, initialDelayMs: 1000 }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to seed data');
-      }
+    
+    // Simulate network delay
+    setTimeout(() => {
+      try {
+        // Clear selection first
+        setSelectedUser(null);
+        syncToUrlAndStorage(null);
+        
+        const result = seedLocalStorage();
+        console.log('Seeded data:', result);
 
-      // Refresh user list after seeding
-      await fetchUsers();
-    } catch (err: any) {
-      console.error('Error seeding data:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+        // Refresh user list after seeding with additional delay
+        setTimeout(fetchUsers, 1000);
+      } catch (err: any) {
+        console.error('Error seeding data:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }, 2000); // 2 second delay for seeding
   };
 
   // Initial fetch on mount

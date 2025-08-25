@@ -1,32 +1,12 @@
-"use client";
-import { useEffect, useState, useCallback } from "react";
+'use client';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useUser } from '../context/UserContext';
-import { fetchWithRetry } from '@/lib/fetch-retry';
+import * as db from '@/lib/dataStore';
 
 // Types for better code organization and type safety
-interface Notification {
-  id: string;
-  type: string;
-  actorName: string;
-  text: string;
-  read: boolean;
-  createdAt: string;
-  objectId?: string;
-  objectType?: string;
-}
-
 interface NotificationToast {
   message: string;
   type: 'success' | 'error';
-}
-
-// Utility: read user id from ?user=<id> query param
-function getUserIdFromParams(searchParams: any | null) {
-  try {
-    return searchParams?.get?.('user') || null;
-  } catch (e) {
-    return null;
-  }
 }
 
 function formatRelativeTime(date: string) {
@@ -80,175 +60,74 @@ function useNotificationToast() {
 }
 
 // Notification content renderer
-function NotificationContent({ n }: { n: Notification }) {
+function NotificationContent({ notification, users }: { notification: db.Notification; users: db.User[] }) {
+  const actor = users.find(u => u.id === notification.actorId);
+  const actorName = actor?.name || 'Someone';
+
   const content = {
-    'new_post': <>{n.actorName} created a new post{n.text && <>: <span className="italic">{truncateText(n.text, 60)}</span></>}</>,
-    'new_like': <>{n.actorName} liked your post{n.text && <>: <span className="italic">{truncateText(n.text, 60)}</span></>}</>,
-    'new_follow': <>{n.actorName} started following you</>,
-  }[n.type] || <>{n.text}</>;
+    'new_post': <>{actorName} created a new post{notification.text && <>: <span className="italic">{truncateText(notification.text, 60)}</span></>}</>,
+    'new_like': <>{actorName} liked your post{notification.text && <>: <span className="italic">{truncateText(notification.text, 60)}</span></>}</>,
+    'new_follow': <>{actorName} started following you</>,
+  }[notification.type] || <>{notification.text}</>;
 
   return (
     <div className="flex flex-col">
       <div className="font-medium text-gray-900 leading-snug">{content}</div>
-      <div className="text-xs text-gray-500 mt-1">{formatRelativeTime(n.createdAt)}</div>
+      <div className="text-xs text-gray-500 mt-1">{formatRelativeTime(notification.createdAt)}</div>
     </div>
   );
 }
 
 // Main component
 export default function NotificationList() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<db.Notification[]>([]);
   const [sort, setSort] = useState<'chrono' | 'ai'>('chrono');
   const [loading, setLoading] = useState(false);
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const { selectedUser: userId, setSelectedUser } = useUser();
+  const { selectedUser: userId, users } = useUser();
   const [demoLoading, setDemoLoading] = useState(false);
   const { Toast, showToast } = useNotificationToast();
 
-  // Keep userId in sync with URL param by listening for popstate (pushState triggers popstate via UserSelector)
-  // No need for popstate listener since UserContext handles URL syncing
-
-  // Fetch notifications with error handling and cancellation support
-  const abortRef = /*#__PURE__*/ { current: null as AbortController | null };
-
-  const fetchNotifications = useCallback(async () => {
+  const fetchNotifications = useCallback(() => {
     if (!userId) return;
-
-    // Validate user ID format to avoid unnecessary requests
-    if (typeof userId !== 'string' || !userId.trim()) {
-      setSelectedUser(null);
-      return;
-    }
-
-    // Cancel any in-flight request before starting a new one
-    try {
-      abortRef.current?.abort();
-    } catch (e) {
-      // ignore
-    }
-    const controller = new AbortController();
-    abortRef.current = controller;
-
     setLoading(true);
     try {
-      // First validate that the user still exists
-      const validateResponse = await fetchWithRetry('/api/users', { 
-        signal: controller.signal,
-        retry: { maxRetries: 3, initialDelayMs: 500 }
-      });
-
-      if (!validateResponse.ok) throw new Error('Failed to validate user');
-      const userData = await validateResponse.json();
-      
-      if (!Array.isArray(userData.users) || !userData.users.find((u: any) => u.id === userId)) {
-        setSelectedUser(null);
-        showToast('Selected user not found. Please select a demo user.', 'error');
-        return;
-      }
-
-      // Then fetch notifications
-      const notifResponse = await fetchWithRetry(
-        `/api/users/${userId}/notifications?sort=${sort}&unreadOnly=${unreadOnly}&limit=50`,
-        { 
-          signal: controller.signal,
-          retry: { maxRetries: 3, initialDelayMs: 500 }
-        }
-      );
-      
-      if (!notifResponse.ok) {
-        throw new Error('Failed to fetch notifications');
-      }
-
-      const data = await notifResponse.json();
-      
-      // Double check userMissing flag
-      if (data.meta?.userMissing) {
-        setSelectedUser(null);
-        showToast('Selected user not found. Please select a demo user.', 'error');
-        return;
-      }
-
-      setNotifications(Array.isArray(data.notifications) ? data.notifications : []);
+      // Simulate network delay
+      setTimeout(() => {
+        const notifs = db.getNotifications(userId, {
+          unreadOnly: unreadOnly,
+          sort: sort
+        });
+        setNotifications(notifs);
+        setLoading(false);
+      }, 1500); // 1.5 second delay
     } catch (error: any) {
-      if (error && error.name === 'AbortError') {
-        // Request was aborted; don't show an error toast in this case
-        return;
-      }
       console.error('Error fetching notifications:', error);
-      
-      // Clear invalid user state
-      if (error.message?.includes('not found') || error.message?.includes('invalid')) {
-        setSelectedUser(null);
-        showToast('Selected user is invalid. Please select a demo user.', 'error');
-      } else {
-        showToast('Failed to load notifications. Please try again.', 'error');
-      }
-    } finally {
+      showToast('Failed to load notifications. Please try again.', 'error');
       setLoading(false);
     }
   }, [userId, sort, unreadOnly, showToast]);
 
-  // Set up polling for real-time updates using a single timeout loop and cancellation.
+  // Only fetch when user changes
   useEffect(() => {
-    let stopped = false;
-    let timer: number | null = null;
-
-    const loop = async () => {
-      // Only fetch when we have a userId
-      if (!userId) return;
-      
-      try {
-        // Validate user exists first
-        const validateResponse = await fetchWithRetry('/api/users', {
-          retry: { maxRetries: 2, initialDelayMs: 500 }
-        });
-        
-        if (!validateResponse.ok) throw new Error('Failed to validate user');
-        const userData = await validateResponse.json();
-        
-        if (!Array.isArray(userData.users) || !userData.users.find((u: any) => u.id === userId)) {
-          setSelectedUser(null);
-          showToast('Selected user not found. Please select a demo user.', 'error');
-          return;
-        }
-
-        await fetchNotifications();
-        if (stopped) return;
-        // Schedule next poll
-        timer = window.setTimeout(loop, 15000);
-      } catch (error) {
-        console.error('Error in notification loop:', error);
-        if (!stopped) timer = window.setTimeout(loop, 15000);
-      }
-    };
-
-    // Start immediately if we have a userId
-    if (userId) loop();
-
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      try {
-        abortRef.current?.abort();
-      } catch (e) {
-        // ignore
-      }
-    };
+    if (!userId) return;
+    fetchNotifications();
   }, [fetchNotifications, userId]);
 
   // Handle marking notifications as read
-  const markRead = async (id: string) => {
+  const markRead = (id: string) => {
     try {
-      const response = await fetchWithRetry(`/api/notifications/${id}/read`, {
-        method: "POST",
-        retry: { maxRetries: 3, initialDelayMs: 500 }
-      });
-      
-      if (!response.ok) throw new Error('Failed to mark as read');
-      setNotifications(prev => prev.map(n => 
-        n.id === id ? { ...n, read: true } : n
-      ));
-      showToast('Marked as read', 'success');
+      setTimeout(() => {
+        const result = db.markNotificationAsRead(id);
+        if (result) {
+          setNotifications(prev => prev.map(n => 
+            n.id === id ? { ...n, read: true } : n
+          ));
+          showToast('Marked as read', 'success');
+        } else {
+          throw new Error('Failed to mark as read');
+        }
+      }, 500); // 0.5 second delay for mark as read
     } catch (error) {
       showToast('Failed to mark as read', 'error');
       console.error('Error marking as read:', error);
@@ -256,7 +135,7 @@ export default function NotificationList() {
   };
 
   // Handle demo event creation
-  const triggerDemoEvent = async (type: "new_post" | "new_like" | "new_follow") => {
+  const triggerDemoEvent = (type: "new_post" | "new_like" | "new_follow") => {
     if (!userId) {
       showToast('Please select a demo user first', 'error');
       return;
@@ -265,158 +144,89 @@ export default function NotificationList() {
     setDemoLoading(true);
     
     try {
-      // Validate the current user first
-      const validateResponse = await fetchWithRetry('/api/users', {
-        retry: { maxRetries: 3, initialDelayMs: 500 }
-      });
+      // Get all users 
+      const allUsers = db.getUsers();
+      const currentUser = allUsers.find(u => u.id === userId);
       
-      if (!validateResponse.ok) throw new Error('Failed to validate current user');
-      const validateData = await validateResponse.json();
-      const currentUserExists = Array.isArray(validateData.users) && validateData.users.find((u: any) => u.id === userId);
-      
-      if (!currentUserExists) {
-        setSelectedUser(null);
-        throw new Error('Your user has been removed, please select another');
+      if (!currentUser) {
+        showToast('Your user has been removed, please select another', 'error');
+        return;
       }
 
-      // Get all users after validation
-      const usersResponse = await fetchWithRetry('/api/users', {
-        retry: { maxRetries: 3, initialDelayMs: 500 }
-      });
-      
-      if (!usersResponse.ok) throw new Error('Failed to fetch users for demo event');
-      const usersData = await usersResponse.json();
-      
-      const allUsers = Array.isArray(usersData.users) ? usersData.users : [];
-      const others = allUsers.filter((u: any) => u.id !== userId);
-
-  // actor will be a random other user; notifyUserId is the selected user so they receive the notification
-  let event: any = { type, actorId: undefined, notifyUserId: userId };
+      const others = allUsers.filter(u => u.id !== userId);
 
       switch (type) {
-        case 'new_post':
-          // actor will be a random other user (simulate someone else posting about/for you)
+        case 'new_post': {
           if (others.length === 0) {
-            showToast('No other users available. Please reseed or select another user.', 'error');
-            setDemoLoading(false);
+            showToast('No other users available. Please reseed.', 'error');
             return;
           }
-          const actorForPost = others[Math.floor(Math.random() * others.length)];
-          event = { ...event, actorId: actorForPost?.id, objectType: 'post', objectId: '', text: `A new post from ${actorForPost?.name || 'someone'}` };
+          const actor = others[Math.floor(Math.random() * others.length)];
+          const post = db.createPost({
+            authorId: actor.id,
+            content: `A new post from ${actor.name}`
+          });
+          db.createNotification({
+            userId,
+            type: 'new_post',
+            actorId: actor.id,
+            text: post.content,
+            objectType: 'post',
+            objectId: post.id
+          });
           break;
-        case 'new_like':
+        }
+        case 'new_like': {
           if (others.length === 0) {
-            showToast('No other users to like a post from', 'error');
-            setDemoLoading(false);
+            showToast('No other users available. Please reseed.', 'error');
             return;
           }
-          // selected user likes a post by a random other user
-          const actorForLike = others[Math.floor(Math.random() * others.length)];
-          // actor likes a post by target (notify selected user)
-          event = { ...event, actorId: actorForLike.id, type: 'new_like', objectType: 'post', targetUserId: userId, text: `Liked a post by you` };
-          // Ensure there is at least one post to like; if not, create a lightweight post by the target
-          try {
-            const check = await fetch('/api/users'); // rely on users endpoint for simplicity
-            // We won't block the UI on creating a post here; server will return an error if none found
-          } catch (e) {
-            // ignore network errors here
-          }
+          const actor = others[Math.floor(Math.random() * others.length)];
+          // First create a post by the current user
+          const post = db.createPost({
+            authorId: userId,
+            content: 'A post to be liked'
+          });
+          // Then create the like by the other user
+          db.createReaction({
+            userId: actor.id,
+            postId: post.id,
+            type: 'like'
+          });
+          // Create the notification
+          db.createNotification({
+            userId,
+            type: 'new_like',
+            actorId: actor.id,
+            text: 'Liked your post',
+            objectType: 'post',
+            objectId: post.id
+          });
           break;
-        case 'new_follow':
+        }
+        case 'new_follow': {
           if (others.length === 0) {
-            showToast('No other users to follow', 'error');
-            setDemoLoading(false);
+            showToast('No other users available. Please reseed.', 'error');
             return;
           }
-          // selected user follows a random other user
-          const actorForFollow = others[Math.floor(Math.random() * others.length)];
-          // actorForFollow will follow the selected user (notify selected user)
-          event = { ...event, actorId: actorForFollow.id, objectType: 'user', followeeId: userId, text: `Started following you` };
+          const actor = others[Math.floor(Math.random() * others.length)];
+          // Create the follow
+          db.createFollow(actor.id, userId);
+          // Create the notification
+          db.createNotification({
+            userId,
+            type: 'new_follow',
+            actorId: actor.id,
+            text: 'Started following you'
+          });
           break;
+        }
       }
 
-      // Make sure actorId is set correctly; fall back to the selected user if something went wrong
-      if (!event.actorId) event.actorId = userId;
-      
-      const response = await fetchWithRetry("/api/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(event),
-        retry: { maxRetries: 3, initialDelayMs: 500 }
-      });
-
-      // Always try to read the body
-      const body = await response.json().catch(() => null);
-
-        // If server indicates no post exists for a 'like', create a lightweight post first and retry once
-        if (type === 'new_like' && body && typeof body.error === 'string' && body.error.toLowerCase().includes('no post available')) {
-          // create a lightweight post by the target (notifyUserId)
-          try {
-            const createPostRes = await fetchWithRetry('/api/events', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                type: 'new_post', 
-                actorId: event.actorId, 
-                notifyUserId: event.notifyUserId, 
-                text: 'Auto post for demo like' 
-              }),
-              retry: { maxRetries: 2, initialDelayMs: 500 }
-            });
-
-            if (createPostRes.ok) {
-              // retry the like once
-              const retryRes = await fetchWithRetry('/api/events', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(event),
-                retry: { maxRetries: 2, initialDelayMs: 500 }
-              });
-
-              if (retryRes.ok) {
-                showToast(`Demo ${type.replace('new_', '')} created`, 'success');
-                setTimeout(() => void fetchNotifications(), 600);
-                return;
-              }
-            }
-          } catch (e) {
-            // ignore and fall through to generic error
-            console.error('Error creating auto post:', e);
-          }
-        }
-
-        // If the event failed due to foreign key constraints (stale IDs after reseed), refresh users
-        if (response.status === 400 && body && typeof body.error === 'string') {
-          const err = body.error;
-          if (err.toLowerCase().includes('foreign key') || err.toLowerCase().includes('actorid') || err.toLowerCase().includes('followeeid')) {
-            try {
-              const validateRes = await fetchWithRetry('/api/users', {
-                retry: { maxRetries: 2, initialDelayMs: 500 }
-              });
-              
-              if (validateRes.ok) {
-                const userData = await validateRes.json();
-                const userExists = Array.isArray(userData.users) && userData.users.find((u: any) => u.id === userId);
-                if (!userExists) {
-                  setSelectedUser(null);
-                  showToast('Selected user is no longer valid after reseed. Please select a demo user.', 'error');
-                  return;
-                }
-              }
-            } catch (e) {
-              console.error('Error validating user after constraint error:', e);
-            }
-          }
-        }
-
-        if (!response.ok) {
-          throw new Error('Failed to create demo event');
-        }
-
+      setTimeout(() => {
         showToast(`Demo ${type.replace('new_', '')} created`, 'success');
-        
-        // Wait briefly then fetch new notifications
-        setTimeout(() => void fetchNotifications(), 600);
+        fetchNotifications();
+      }, 1000); // 1 second delay for new notifications
     } catch (error) {
       showToast('Failed to create demo event', 'error');
       console.error('Error creating demo event:', error);
@@ -429,8 +239,21 @@ export default function NotificationList() {
     return (
       <div className="text-center py-12 text-gray-600">
         <div className="text-4xl mb-4">👤</div>
-        <p className="font-medium">Please select a user above</p>
-        <p className="text-sm mt-2">to view and interact with notifications</p>
+        <p className="font-medium">Welcome to Insyd Notifications!</p>
+        <div className="mt-4 space-y-3 text-sm max-w-md mx-auto">
+          <p className="p-2 bg-blue-50 rounded-lg">
+            👉 Start by selecting a demo user above
+          </p>
+          <p className="p-2 bg-green-50 rounded-lg">
+            📝 Create posts, follow users, and like content
+          </p>
+          <p className="p-2 bg-purple-50 rounded-lg">
+            📧 Check your notification digest to see all activity
+          </p>
+          <p className="p-2 bg-yellow-50 rounded-lg">
+            🔄 Use "Reseed Data" to reset the demo anytime
+          </p>
+        </div>
       </div>
     );
   }
@@ -535,7 +358,7 @@ export default function NotificationList() {
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <NotificationContent n={n} />
+                <NotificationContent notification={n} users={users} />
               </div>
 
               {/* Action buttons */}

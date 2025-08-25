@@ -1,0 +1,74 @@
+Q1: Can you give a high-level overview of the notification system's architecture?
+A: The system is built on microservices. An API Gateway receives all incoming requests. A core Notification Service handles the business logic. A Templating Service formats the messages. Finally, multiple Dispatcher services send the notifications through specific channels like Email, SMS, or Push.
+
+Q2: How would you design the API for sending a notification?
+A: I'd create a REST API endpoint, for example, `POST /v1/send`. It would accept a JSON body with parameters like `recipientId`, `channel` (e.g., "email"), and `templateId`. For bulk sending, the `recipientId` could be an array of IDs.
+
+Q3: How do you prevent sending duplicate notifications if a client sends the same request twice?
+A: This is handled with idempotency. The client sends a unique `Idempotency-Key` in the request header. The server saves this key after the first successful request. If another request arrives with the same key, the server simply returns the previous success response without sending another notification.
+
+Q4: How does the system support different channels like Email and SMS?
+A: It uses a pluggable design. The main service chooses a specific "Dispatcher" based on the requested channel. For example, if the channel is "email," it uses the Email Dispatcher which integrates with a service like SendGrid. This makes it easy to add new channels in the future without changing the core logic.
+
+Q5: How would you scale the system to handle a million notifications per minute?
+A: The key is to use a message queue (like RabbitMQ or SQS) to absorb traffic spikes. This decouples the API from the sending process. Then, we can horizontally scale the consumer services (add more instances) that read from the queue and send notifications. We'd also use a scalable, distributed database.
+
+Q6: How would you implement rate limiting to prevent system abuse?
+A: Rate limiting would be implemented at the API Gateway. We can apply limits based on the client's API key or user ID. This ensures fair usage and protects the system from being overwhelmed by a single client.
+
+Q7: How do you ensure low-latency delivery for users worldwide?
+A: We would use a Content Delivery Network (CDN) for static assets and deploy our services in multiple geographic regions (e.g., US, Europe, Asia). This places the infrastructure closer to the users, reducing network latency for both API requests and notification delivery.
+
+Q8: How do you handle sending a notification to thousands of users at once (fan-out)?
+A: Instead of sending one by one, we publish a single event (e.g., "new_promo_available") to a pub/sub system like Kafka or SNS. Multiple consumer services, each responsible for a group of users, subscribe to this event and then generate the individual notifications.
+
+Q9: What kind of database would you choose for this system?
+A: I'd use a hybrid approach. A NoSQL database like DynamoDB or Cassandra is great for storing notification history and metadata because it scales well for high-volume writes. A SQL database like PostgreSQL would be used for storing user preferences and notification templates, where data consistency is more important.
+
+Q10: How would you design the database schema to track a notification's status?
+A: The main notifications table would have columns like `notificationId`, `userId`, `channel`, `status` (e.g., 'pending', 'sent', 'failed'), and timestamps. To efficiently find unread notifications for a user, I would create a database index on the `userId` and `status` columns.
+
+Q11: What's your strategy for managing old notification data?
+A: Implement a data retention policy. For example, after 90 days, an automated job would move old notification records from the primary, high-performance database to cheaper, long-term archival storage like Amazon S3. This keeps the main database fast and lean.
+
+Q12: Why is a message queue a critical component in this architecture?
+A: A message queue acts as a buffer. It separates the fast API that accepts requests from the slower services that send notifications. This improves reliability (if a sender fails, the message stays in the queue to be retried) and scalability (we can handle sudden traffic spikes without crashing).
+
+Q13: How do you guarantee a notification is processed at least once?
+A: When a service takes a message from the queue, the message is only marked as "invisible," not deleted. The service must explicitly signal "completion" to delete it. If the service crashes, the message becomes visible again after a timeout and another service can process it. For permanent failures, we use a Dead-Letter Queue (DLQ) to store and analyze them later.
+
+Q14: How would you prioritize important notifications, like a password reset, over a marketing promo?
+A: We can use separate message queues for different priorities. High-priority notifications (like password resets) go into a dedicated "high-priority" queue with more consumers, ensuring they are processed almost instantly. Lower-priority messages go into a standard queue.
+
+Q15: How can a web frontend receive real-time notifications?
+A: WebSockets are the best choice for this. They provide a persistent, two-way connection between the client and server, allowing the server to instantly "push" new notifications to the web app as soon as they are ready.
+
+Q16: How do you sync the "read/unread" status across a user's multiple devices?
+A: The "read" status is stored centrally in the database. When a user reads a notification on one device, that device sends an API call to the server to update the status. The server then uses real-time channels (like WebSockets) to push this status update to the user's other connected devices.
+
+Q17: How could you use AI to improve this system?
+A: AI can be used for personalization. We could analyze a user's activity patterns to determine the best time to send a notification to maximize engagement. It could also be used to bundle related notifications into a single, intelligent summary.
+
+Q18: How would you avoid overwhelming users by bundling notifications?
+A: We can temporarily hold low-priority notifications in the database. A scheduled job could then run periodically (e.g., every hour), group similar notifications for a user, and send them as a single digest email or push notification.
+
+Q19: What are the top 3 performance optimizations you would implement?
+A: 1. Batching: Sending notifications in batches to third-party providers instead of one by one. 2. Caching: Caching frequently accessed data like user preferences and notification templates. 3. Asynchronous Processing: Using message queues to handle all notification sending asynchronously so the API remains fast.
+
+Q20: What are the limitations regarding guaranteed delivery to a user's device?
+A: Our system can guarantee it handed the notification to a third-party provider (like Apple's Push Notification Service). However, we can't control factors like the user's device being offline, having no signal, or having notifications disabled for the app. These are external factors beyond our control.
+
+Q21: How do you make the system resilient to outages from third-party providers like SendGrid?
+A: We would design the system with a fallback mechanism. For a critical channel like email, if our primary provider (SendGrid) is down, the system should automatically retry and then switch to a secondary provider (like Mailgun) after a certain number of failures.
+
+Q22: How would you secure this notification system?
+A: Security is multi-layered. We'd secure the API with authentication (e.g., OAuth 2.0) to ensure only authorized clients can send requests. We'd also encrypt sensitive data both in transit (using TLS) and at rest (in the database) to protect user information.
+
+Q23: How would you monitor the health and performance of this system?
+A: We'd use an observability platform. Key metrics to track would be: notification throughput (per minute), error rates from third-party providers, message queue depth, and API latency. We'd also set up alerts to notify the team of any anomalies.
+
+Q24: How would you design the system to be cost-effective?
+A: We'd leverage serverless technologies (like AWS Lambda) for services that have spiky traffic, as you only pay for what you use. We'd also implement intelligent routing to choose the cheapest third-party provider for non-critical notifications and use data archiving to reduce database costs.
+
+Q25: What is your testing strategy for a system like this?
+A: We'd use a multi-level approach. Unit tests for individual functions, integration tests to ensure services work together correctly (e.g., API to queue), and end-to-end tests that simulate a user request and verify a notification is sent through a mock third-party provider.

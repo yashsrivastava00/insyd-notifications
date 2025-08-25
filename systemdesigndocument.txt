@@ -1,0 +1,113 @@
+# System Design Document: Insyd Notifications
+
+**Version:** 1.0
+**Date:** August 25, 2025
+**Author:** AI Assistant
+
+## 1. Introduction
+
+### 1.1. Purpose
+This document outlines the system design for Insyd Notifications, a proof-of-concept (POC) notification system built for a modern social web application. It details the architecture, components, data flows, and scalability considerations.
+
+### 1.2. Scope
+The system is designed to handle the creation, storage, and delivery of in-app notifications triggered by user interactions such as new posts, likes, and follows. It includes both chronological and AI-powered notification ranking.
+
+---
+
+## 2. System Architecture & Components
+
+The system is built on a modern, serverless-first technology stack, prioritizing developer experience and scalability.
+
+### 2.1. Components
+
+*   **Frontend**:
+    *   **Framework**: Next.js 14 (App Router)
+    *   **Language**: TypeScript
+    *   **UI**: React, Tailwind CSS
+    *   **State Management**: React Context (`UserContext`) for managing the selected user's state across components.
+    *   **Functionality**: Provides the user interface for viewing notifications, selecting demo users, and triggering demo events. It polls the backend for updates.
+
+*   **Backend**:
+    *   **Framework**: Next.js API Routes
+    *   **Runtime**: Node.js (Serverless Functions on Vercel)
+    *   **Functionality**: Exposes RESTful endpoints for event ingestion, user data retrieval, and notification fetching. It contains all business logic for processing events and creating notifications.
+
+*   **Database**:
+    *   **System**: PostgreSQL
+    *   **ORM**: Prisma Client for type-safe database access and schema management.
+    *   **Functionality**: Persists all application data, including users, posts, follows, reactions, and notifications.
+
+*   **AI Ranking Service (Optional)**:
+    *   **Provider**: Hugging Face Inference API
+    *   **Model**: Sentence Transformers model for generating text embeddings.
+    *   **Functionality**: When enabled, it converts notification text into vector embeddings, which are stored in the database and used to calculate a relevance score for ranking. If disabled, a simple heuristic is used.
+
+---
+
+## 3. Data Flow & Execution
+
+The flow describes how a user action translates into a notification being displayed to another user.
+
+1.  **Event Triggering**: A user performs an action in the UI (e.g., clicks "New Post"). The frontend client sends a POST request to the `/api/events` endpoint with a payload containing the event type, actor ID, and other relevant metadata.
+
+2.  **Event Ingestion & Processing**: The Next.js API Route receives the request. It validates the payload and actor's existence.
+
+3.  **Database Transaction**: The backend logic creates the primary record for the event (e.g., a new row in the `Post` table).
+
+4.  **Notification Creation**: The system identifies all users who should be notified of this event (e.g., followers of the post's author). It then creates new rows in the `Notification` table for each recipient. If AI ranking is enabled, it calls the Hugging Face API to get an embedding for the notification text before saving.
+
+5.  **Notification Delivery**:
+    *   The frontend for a recipient user polls the `/api/users/[userId]/notifications` endpoint every 15 seconds.
+    *   This endpoint queries the database for unread notifications for the given user ID.
+    *   The response is sent back to the client, which updates the UI to display the new notification.
+
+---
+
+## 4. Scalability Considerations (From POC to 1M DAUs)
+
+### 4.1. Database
+*   **POC**: A single PostgreSQL instance is sufficient.
+*   **100k DAUs**: Introduce **read replicas** to handle the high read load from notification polling. Use **connection pooling** (e.g., Prisma Data Proxy, PgBouncer) to manage connections efficiently in a serverless environment.
+*   **1M DAUs**: At this scale, consider **database sharding**, partitioning user and notification data by `userId` to distribute the load across multiple database instances.
+
+### 4.2. Backend & Event Processing
+*   **POC**: The synchronous processing in API routes is simple and effective.
+*   **100k DAUs**: Introduce a **Message Queue** (e.g., AWS SQS, RabbitMQ). The `/api/events` endpoint becomes a lightweight producer that simply pushes events into the queue.
+*   **1M DAUs**: A dedicated fleet of **asynchronous workers** (e.g., AWS Lambda functions triggered by SQS) would consume events from the queue. This decouples event ingestion from processing, improves fault tolerance (with retries), and handles traffic spikes gracefully.
+
+### 4.3. Notification Delivery
+*   **POC**: Client-side polling is simple but inefficient at scale.
+*   **100k DAUs+**: Transition to a real-time delivery mechanism like **WebSockets** or **Server-Sent Events (SSE)**. This establishes a persistent connection, allowing the server to push notifications to the client instantly, drastically reducing latency and server load from polling.
+
+---
+
+## 5. Performance Optimizations
+
+*   **Batching**: Using Prisma's `createMany` for bulk inserts during database seeding and for creating notifications for multiple users at once.
+*   **AI Prioritization**: Ranking notifications by relevance improves user experience by surfacing the most important content first, increasing engagement.
+*   **Notification Aggregation (De-duping)**: For high-frequency events (like multiple likes), notifications can be aggregated. Instead of 10 individual "like" notifications, the system could generate one: "Alice and 9 others liked your post." This is a future enhancement but a key optimization.
+*   **Database Indexing**: Prisma automatically adds indexes on primary and foreign keys. For large-scale operations, custom indexes on frequently queried columns (e.g., `Notification(userId, read, createdAt)`) are critical for fast lookups.
+
+---
+
+## 6. Limitations of the POC
+
+*   **No Real-Time Delivery**: Relies on polling, which has inherent latency.
+*   **Tightly Coupled Architecture**: Event ingestion and processing logic are combined in a single API route.
+*   **No Notification Aggregation**: Creates a separate notification for every event, which can be noisy.
+*   **Single-Channel**: Only supports in-app notifications. No email or push notifications.
+*   **Basic Error Handling**: Lacks a robust monitoring, alerting, and distributed tracing solution.
+
+---
+
+## 7. Future Enhancements
+
+*   **Multi-Channel Notifications**: Add support for sending notifications via Email, SMS, and Web/Mobile Push Notifications. This would involve a dedicated Notification Service.
+*   **User Preferences**: Allow users to configure which notifications they want to receive and on which channels.
+*   **Advanced Personalization**: Use a more sophisticated ML model to rank notifications based on user behavior, social graph proximity, and historical engagement.
+*   **Analytics & Monitoring**: Implement an analytics dashboard to track key metrics like delivery rate, open rate, and click-through rate for notifications.
+*   **Real-Time Infrastructure**: Integrate WebSockets for instant notification delivery.
+*   **Full-Text Search**: Allow users to search their notification history.
+*   **Notification Grouping**: Implement intelligent grouping of similar notifications.
+
+This document provides a comprehensive overview of the Insyd Notifications system, its current state, and its potential evolution into a large-scale, feature-rich service.
