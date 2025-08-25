@@ -23,7 +23,18 @@ export async function POST(req: NextRequest) {
   const notifyUserId: string | undefined = event.notifyUserId;
 
   // log a short copy of the incoming payload for debugging in production
-  try { console.info('events: received', { type, actorId, notifyUserId, objectId: event.objectId, text: truncate(event.text, 120) }); } catch (err) {}
+  try { 
+    console.info('events: received', { 
+      type, 
+      actorId, 
+      notifyUserId, 
+      objectId: event.objectId,
+      text: truncate(event.text, 120),
+      rawPayload: raw?.slice(0, 500)
+    }); 
+  } catch (err) {
+    console.error('events: error logging payload:', err);
+  }
 
   if (!actorId) {
     console.warn('events: missing actorId', raw?.slice(0, 300));

@@ -34,36 +34,36 @@ export async function seedDatabase(options?: { fast?: boolean }) {
     await prisma.$connect();
     console.log('Database connected successfully');
     
-    // Clear existing data
+    // Clear existing data in the correct order (respect foreign keys)
     console.log('Clearing existing data...');
-    await prisma.notification.deleteMany()
+    await prisma.notification.deleteMany({})
       .catch((e: Error) => console.error('Error clearing notifications:', e));
       
-    await prisma.reaction.deleteMany()
+    await prisma.reaction.deleteMany({})
       .catch((e: Error) => console.error('Error clearing reactions:', e));
       
-    await prisma.post.deleteMany()
+    await prisma.post.deleteMany({})
       .catch((e: Error) => console.error('Error clearing posts:', e));
       
-    await prisma.follow.deleteMany()
+    await prisma.follow.deleteMany({})
       .catch((e: Error) => console.error('Error clearing follows:', e));
       
-    await prisma.user.deleteMany()
+    await prisma.user.deleteMany({})
       .catch((e: Error) => console.error('Error clearing users:', e));
-    // Clear existing data
-    console.log('Clearing existing data...');
-    await prisma.notification.deleteMany({});
-    await prisma.reaction.deleteMany({});
-    await prisma.post.deleteMany({});
-    await prisma.follow.deleteMany({});
-    await prisma.user.deleteMany({});
 
-    // Create users (bulk)
+    // Create users (bulk) and ensure they were created correctly
     console.log('Creating users...');
     const userCreates = DEMO_USERS.map(u => ({ name: u.name, bio: `${u.role} - ${u.bio}` }));
     await prisma.user.createMany({ data: userCreates, skipDuplicates: true });
-  const users: Array<{ id: string; name: string; bio?: string | null }> = await prisma.user.findMany({ select: { id: true, name: true, bio: true } });
-    console.log(`Created ${users.length} users`);
+    let users: Array<{ id: string; name: string; bio?: string | null }>;
+    try {
+      users = await prisma.user.findMany({ select: { id: true, name: true, bio: true } });
+      if (users.length === 0) throw new Error('No users created');
+      console.log(`Created ${users.length} users`);
+    } catch (error) {
+      console.error('Error verifying created users:', error);
+      throw new Error('Failed to create users');
+    }
 
     // Create follows (bulk)
     console.log('Creating follow relationships...');

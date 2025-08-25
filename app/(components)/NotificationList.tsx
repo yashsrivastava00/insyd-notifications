@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useUser } from '../context/UserContext';
+import { fetchWithRetry } from '@/lib/fetch-retry';
 
 // Types for better code organization and type safety
 interface Notification {
@@ -116,16 +117,6 @@ export default function NotificationList() {
     // Validate user ID format to avoid unnecessary requests
     if (typeof userId !== 'string' || !userId.trim()) {
       setSelectedUser(null);
-      // remove ?user param if invalid (client-side history replace)
-      try {
-        const params = new URLSearchParams(window.location.search || '');
-        params.delete('user');
-        const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
-        window.history.replaceState({}, '', url);
-        window.dispatchEvent(new Event('popstate'));
-      } catch (e) {
-        // ignore
-      }
       return;
     }
 
@@ -141,49 +132,37 @@ export default function NotificationList() {
     setLoading(true);
     try {
       // First validate that the user still exists
-      const validateResponse = await fetch(`/api/users`, { signal: controller.signal });
+      const validateResponse = await fetchWithRetry('/api/users', { 
+        signal: controller.signal,
+        retry: { maxRetries: 3, initialDelayMs: 500 }
+      });
+
+      if (!validateResponse.ok) throw new Error('Failed to validate user');
       const userData = await validateResponse.json();
       
       if (!Array.isArray(userData.users) || !userData.users.find((u: any) => u.id === userId)) {
-        // clear ?user param
-        try {
-          const params = new URLSearchParams(window.location.search || '');
-          params.delete('user');
-          const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
-          window.history.replaceState({}, '', url);
-          window.dispatchEvent(new Event('popstate'));
-        } catch (e) {
-          // ignore
-        }
         setSelectedUser(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
       }
 
       // Then fetch notifications
-      const response = await fetch(
+      const notifResponse = await fetchWithRetry(
         `/api/users/${userId}/notifications?sort=${sort}&unreadOnly=${unreadOnly}&limit=50`,
-        { signal: controller.signal }
+        { 
+          signal: controller.signal,
+          retry: { maxRetries: 3, initialDelayMs: 500 }
+        }
       );
       
-      if (!response.ok) {
+      if (!notifResponse.ok) {
         throw new Error('Failed to fetch notifications');
       }
 
-      const data = await response.json();
+      const data = await notifResponse.json();
       
       // Double check userMissing flag
       if (data.meta?.userMissing) {
-        // clear ?user param
-        try {
-          const params = new URLSearchParams(window.location.search || '');
-          params.delete('user');
-          const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
-          window.history.replaceState({}, '', url);
-          window.dispatchEvent(new Event('popstate'));
-        } catch (e) {
-          // ignore
-        }
         setSelectedUser(null);
         showToast('Selected user not found. Please select a demo user.', 'error');
         return;
@@ -199,13 +178,6 @@ export default function NotificationList() {
       
       // Clear invalid user state
       if (error.message?.includes('not found') || error.message?.includes('invalid')) {
-        try {
-          const params = new URLSearchParams(window.location.search || '');
-          params.delete('user');
-          const url = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
-          window.history.replaceState({}, '', url);
-          window.dispatchEvent(new Event('popstate'));
-        } catch (e) {}
         setSelectedUser(null);
         showToast('Selected user is invalid. Please select a demo user.', 'error');
       } else {
@@ -247,7 +219,11 @@ export default function NotificationList() {
   // Handle marking notifications as read
   const markRead = async (id: string) => {
     try {
-      const response = await fetch(`/api/notifications/${id}/read`, { method: "POST" });
+      const response = await fetchWithRetry(`/api/notifications/${id}/read`, {
+        method: "POST",
+        retry: { maxRetries: 3, initialDelayMs: 500 }
+      });
+      
       if (!response.ok) throw new Error('Failed to mark as read');
       setNotifications(prev => prev.map(n => 
         n.id === id ? { ...n, read: true } : n
@@ -261,19 +237,36 @@ export default function NotificationList() {
 
   // Handle demo event creation
   const triggerDemoEvent = async (type: "new_post" | "new_like" | "new_follow") => {
-    if (!userId) return;
+    if (!userId) {
+      showToast('Please select a demo user first', 'error');
+      return;
+    }
+    
     setDemoLoading(true);
+    
     try {
-      // Actor should be the currently selected demo user (no random actor)
-      if (!userId) {
-        showToast('Please select a demo user first', 'error');
-        setDemoLoading(false);
-        return;
+      // Validate the current user first
+      const validateResponse = await fetchWithRetry('/api/users', {
+        retry: { maxRetries: 3, initialDelayMs: 500 }
+      });
+      
+      if (!validateResponse.ok) throw new Error('Failed to validate current user');
+      const validateData = await validateResponse.json();
+      const currentUserExists = Array.isArray(validateData.users) && validateData.users.find((u: any) => u.id === userId);
+      
+      if (!currentUserExists) {
+        setSelectedUser(null);
+        throw new Error('Your user has been removed, please select another');
       }
 
-      // Fetch other users only when we need a target (for like/follow targeting)
-      const usersRes = await fetch('/api/users');
-      const usersData = await usersRes.json();
+      // Get all users after validation
+      const usersResponse = await fetchWithRetry('/api/users', {
+        retry: { maxRetries: 3, initialDelayMs: 500 }
+      });
+      
+      if (!usersResponse.ok) throw new Error('Failed to fetch users for demo event');
+      const usersData = await usersResponse.json();
+      
       const allUsers = Array.isArray(usersData.users) ? usersData.users : [];
       const others = allUsers.filter((u: any) => u.id !== userId);
 
@@ -324,29 +317,42 @@ export default function NotificationList() {
 
       // Make sure actorId is set correctly; fall back to the selected user if something went wrong
       if (!event.actorId) event.actorId = userId;
-      const response = await fetch("/api/events", {
+      
+      const response = await fetchWithRetry("/api/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(event),
+        retry: { maxRetries: 3, initialDelayMs: 500 }
       });
 
-      if (!response.ok) {
-        // Read server body for a helpful error
-        let body = null;
-        try { body = await response.json(); } catch (e) { /* ignore */ }
+      // Always try to read the body
+      const body = await response.json().catch(() => null);
 
         // If server indicates no post exists for a 'like', create a lightweight post first and retry once
         if (type === 'new_like' && body && typeof body.error === 'string' && body.error.toLowerCase().includes('no post available')) {
           // create a lightweight post by the target (notifyUserId)
           try {
-            const createPostRes = await fetch('/api/events', {
+            const createPostRes = await fetchWithRetry('/api/events', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ type: 'new_post', actorId: event.actorId, notifyUserId: event.notifyUserId, text: 'Auto post for demo like' })
+              body: JSON.stringify({ 
+                type: 'new_post', 
+                actorId: event.actorId, 
+                notifyUserId: event.notifyUserId, 
+                text: 'Auto post for demo like' 
+              }),
+              retry: { maxRetries: 2, initialDelayMs: 500 }
             });
+
             if (createPostRes.ok) {
               // retry the like once
-              const retryRes = await fetch('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(event) });
+              const retryRes = await fetchWithRetry('/api/events', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(event),
+                retry: { maxRetries: 2, initialDelayMs: 500 }
+              });
+
               if (retryRes.ok) {
                 showToast(`Demo ${type.replace('new_', '')} created`, 'success');
                 setTimeout(() => void fetchNotifications(), 600);
@@ -355,34 +361,42 @@ export default function NotificationList() {
             }
           } catch (e) {
             // ignore and fall through to generic error
+            console.error('Error creating auto post:', e);
           }
         }
 
-        // If the event failed due to foreign key constraints (stale IDs after reseed), refresh users and clear invalid selection
+        // If the event failed due to foreign key constraints (stale IDs after reseed), refresh users
         if (response.status === 400 && body && typeof body.error === 'string') {
           const err = body.error;
           if (err.toLowerCase().includes('foreign key') || err.toLowerCase().includes('actorid') || err.toLowerCase().includes('followeeid')) {
             try {
-              const ures = await fetch('/api/users');
-              const udata = await ures.json();
-              const has = Array.isArray(udata.users) && udata.users.find((u: any) => u.id === userId);
-              if (!has) {
-                    try { localStorage.removeItem('insyd_user'); } catch (e) {}
-                    setSelectedUser(null);
-                    showToast('Selected user is no longer valid after reseed. Please select a demo user.', 'error');
-                    return;
-                  }
+              const validateRes = await fetchWithRetry('/api/users', {
+                retry: { maxRetries: 2, initialDelayMs: 500 }
+              });
+              
+              if (validateRes.ok) {
+                const userData = await validateRes.json();
+                const userExists = Array.isArray(userData.users) && userData.users.find((u: any) => u.id === userId);
+                if (!userExists) {
+                  setSelectedUser(null);
+                  showToast('Selected user is no longer valid after reseed. Please select a demo user.', 'error');
+                  return;
+                }
+              }
             } catch (e) {
-              // ignore
+              console.error('Error validating user after constraint error:', e);
             }
           }
         }
-        throw new Error('Failed to create demo event');
-      }
-      showToast(`Demo ${type.replace('new_', '')} created`, 'success');
-      
-  // Wait briefly then fetch new notifications (await to avoid overlapping requests)
-  setTimeout(() => void fetchNotifications(), 600);
+
+        if (!response.ok) {
+          throw new Error('Failed to create demo event');
+        }
+
+        showToast(`Demo ${type.replace('new_', '')} created`, 'success');
+        
+        // Wait briefly then fetch new notifications
+        setTimeout(() => void fetchNotifications(), 600);
     } catch (error) {
       showToast('Failed to create demo event', 'error');
       console.error('Error creating demo event:', error);
