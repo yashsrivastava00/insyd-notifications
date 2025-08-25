@@ -1,7 +1,7 @@
+"use client";
+
 import Link from 'next/link';
 import UserSelector from './(components)/UserSelector';
-
-"use client";
 export default function Home() {
   return (
     <main className="min-h-screen bg-gray-50" suppressHydrationWarning>
