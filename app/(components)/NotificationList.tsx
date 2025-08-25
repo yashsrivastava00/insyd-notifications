@@ -196,10 +196,30 @@ export default function NotificationList() {
     const loop = async () => {
       // Only fetch when we have a userId
       if (!userId) return;
-      await fetchNotifications();
-      if (stopped) return;
-      // Schedule next poll
-      timer = window.setTimeout(loop, 15000);
+      
+      try {
+        // Validate user exists first
+        const validateResponse = await fetchWithRetry('/api/users', {
+          retry: { maxRetries: 2, initialDelayMs: 500 }
+        });
+        
+        if (!validateResponse.ok) throw new Error('Failed to validate user');
+        const userData = await validateResponse.json();
+        
+        if (!Array.isArray(userData.users) || !userData.users.find((u: any) => u.id === userId)) {
+          setSelectedUser(null);
+          showToast('Selected user not found. Please select a demo user.', 'error');
+          return;
+        }
+
+        await fetchNotifications();
+        if (stopped) return;
+        // Schedule next poll
+        timer = window.setTimeout(loop, 15000);
+      } catch (error) {
+        console.error('Error in notification loop:', error);
+        if (!stopped) timer = window.setTimeout(loop, 15000);
+      }
     };
 
     // Start immediately if we have a userId

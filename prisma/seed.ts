@@ -53,13 +53,29 @@ export async function seedDatabase(options?: { fast?: boolean }) {
 
     // Create users (bulk) and ensure they were created correctly
     console.log('Creating users...');
-    const userCreates = DEMO_USERS.map(u => ({ name: u.name, bio: `${u.role} - ${u.bio}` }));
-    await prisma.user.createMany({ data: userCreates, skipDuplicates: true });
+    
+    // First, check for any existing users to avoid duplicates
+    const existingUsers = await prisma.user.findMany({ select: { name: true } });
+    const existingNames = new Set(existingUsers.map(u => u.name));
+    
+    // Only create users that don't already exist
+    const userCreates = DEMO_USERS
+      .filter(u => !existingNames.has(u.name))
+      .map(u => ({ name: u.name, bio: `${u.role} - ${u.bio}` }));
+    
+    if (userCreates.length > 0) {
+      await prisma.user.createMany({ data: userCreates, skipDuplicates: true });
+    }
+    
     let users: Array<{ id: string; name: string; bio?: string | null }>;
     try {
-      users = await prisma.user.findMany({ select: { id: true, name: true, bio: true } });
+      users = await prisma.user.findMany({ 
+        select: { id: true, name: true, bio: true },
+        orderBy: { name: 'asc' } // Ensure consistent ordering
+      });
+      
       if (users.length === 0) throw new Error('No users created');
-      console.log(`Created ${users.length} users`);
+      console.log(`Verified ${users.length} unique users`);
     } catch (error) {
       console.error('Error verifying created users:', error);
       throw new Error('Failed to create users');

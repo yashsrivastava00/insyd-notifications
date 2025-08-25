@@ -39,14 +39,26 @@ export function UserProvider({ children }: { children: ReactNode }) {
       const data = await response.json();
       
       if (!Array.isArray(data.users)) throw new Error('Invalid user data');
-      setUsers(data.users);
+      
+      // Remove any duplicate users
+      const uniqueUsers = data.users.reduce((acc: User[], curr: User) => {
+        if (!acc.find(u => u.id === curr.id)) {
+          acc.push(curr);
+        }
+        return acc;
+      }, []);
+      
+      setUsers(uniqueUsers);
       
       // Validate current selection
       if (selectedUser) {
-        const userExists = data.users.find((u: User) => u.id === selectedUser);
+        const userExists = uniqueUsers.find((u: User) => u.id === selectedUser);
         if (!userExists) {
           setSelectedUser(null);
           syncToUrlAndStorage(null);
+        } else {
+          // Re-sync to ensure state is consistent
+          syncToUrlAndStorage(selectedUser);
         }
       }
     } catch (err: any) {
